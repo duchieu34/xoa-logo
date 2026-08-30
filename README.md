@@ -41,6 +41,23 @@ The default ROI was calibrated from the benchmark and becomes `(1824, 1004, 96, 
 
 Each number is a fraction of frame width/height: `x,y,width,height`. Experiment 0 writes original frames, ROI overlays, raw ROI crops, contact sheets, `median_roi.png`, `temporal_std_roi.png`, and `report.json`.
 
+## Run Experiment 1
+
+Experiment 1 builds a shape-tight three-letter mask from the benchmark's temporal median, then produces separate CPU-only TELEA and Navier–Stokes baselines:
+
+```powershell
+.\.venv\Scripts\python.exe main.py samples/ft-vid-23.mp4 --experiment 1 --diagnostics diagnostics/experiment1 --output-dir outputs/experiment1
+```
+
+Outputs:
+
+```text
+outputs/experiment1/ft-vid-23_telea.mp4
+outputs/experiment1/ft-vid-23_ns.mp4
+```
+
+Both outputs retain 1920×1080, 24 FPS, 192 frames, eight-second duration, and the original AAC stream. Generated videos and diagnostics remain ignored by Git.
+
 ## Repository layout
 
 ```text
@@ -50,6 +67,10 @@ veo_watermark_remover/          research package
   video_io.py                   ffprobe metadata
   diagnostics.py                diagnostic artifacts
   experiment0.py                inspection-only experiment
+  experiment1.py                mask, baseline processing, encoding
+  mask.py                       temporal three-letter mask
+  inpaint.py                    TELEA and Navier–Stokes wrappers
+  watermark.py                  calibrated measurement loader
 assets/                         calibrated measurements; future templates
 samples/                        local benchmark inputs (ignored)
 diagnostics/                    generated evidence (ignored)

@@ -110,6 +110,96 @@ Ba điều kiện khảo sát đã hoàn tất: benchmark đã chạy, ROI đã 
 
 ---
 
+## Experiment 1 — Mask ba ký tự và OpenCV inpainting baseline
+
+### Giả thuyết
+
+Một mask bám sát ba ký tự sẽ tránh phá hỏng cả bbox 32×14. TELEA và Navier–Stokes có thể là baseline CPU đủ tốt khi logo nằm trên nền tối đơn giản, nhưng dự kiến thất bại khi đường DNA hoặc texture sáng chạy xuyên qua logo vì mỗi frame được xử lý độc lập.
+
+### Mask
+
+Mask không được dựng từ bbox đầy. Quy trình thực tế:
+
+1. đọc measurement có checksum từ Experiment 0;
+2. lấy temporal median của ROI trên đủ 192 frame;
+3. trong bbox đã đo, chọn pixel có saturation `< 120` và value `> 100`;
+4. chỉ giữ đúng 3 connected component lớn nhất tương ứng ba ký tự;
+5. dilation bằng kernel ellipse đúng 1 px để phủ viền anti-alias;
+6. ép mask nằm trong bbox mở rộng 1 px như một giới hạn an toàn.
+
+Kết quả:
+
+| Thuộc tính mask | Giá trị |
+|---|---:|
+| Connected components | 3 |
+| Pixel lõi | 186 |
+| Pixel sau dilation 1 px | 326 |
+| Tỷ lệ trên ROI 96×76 | 4,4682% |
+| Tỷ lệ xấp xỉ trên frame 1080p | 0,0157% |
+
+Overlay trên cả 8 frame đại diện cho thấy mask phủ kín chữ “Veo” và viền anti-alias, nhưng không biến thành hình chữ nhật và không ăn rộng sang context. Vì vậy mask được chấp nhận trước khi đánh giá thuật toán.
+
+### Thiết lập baseline
+
+* Cùng một mask cho cả hai phương pháp.
+* `inpaintRadius = 3` cho TELEA và Navier–Stokes.
+* Chỉ inpaint ROI 96×76 rồi paste lại frame gốc.
+* Decode bằng OpenCV, encode H.264 `yuv420p` bằng FFmpeg/libx264 CRF 18 trên CPU.
+* Audio AAC dùng `-c:a copy`; không crop, blur, GPU, alpha recovery hay optical flow.
+
+Đã sweep radius 1, 2 và 3 trên 8 frame. Radius 1 tạo patch răng cưa/blocky hơn; radius 2 và 3 không phục hồi được đường DNA bị che. Radius 3 cho patch mượt hơn trên frame dễ nên được giữ làm cấu hình baseline, không phải vì nó giải quyết được frame khó.
+
+### Kết quả ảnh
+
+* **Logo còn sót:** không còn ba ký tự nào nhận ra được ở cả TELEA và NS trên 8 frame kiểm tra. Logo-likeness trung bình giảm từ `0,5821` xuống `0,2330` với TELEA và `0,2220` với NS.
+* **Frame 136, tương đối dễ:** cả hai xóa được chữ; còn hõm tối/xanh nhẹ và texture trong vùng vá bị mềm.
+* **Frame 0 và 27:** cả hai tạo vệt tối ngang, làm đứt phần thanh DNA đi qua chữ.
+* **Frame 54, 81, 109, 163 và 191:** lỗi nặng hơn, gồm smear tối, mất texture, double/damaged edge và đường màu bị cắt. NS thường tối và loang hơn nhẹ; TELEA đôi lúc giữ biên tốt hơn nhưng vẫn sai rõ.
+* **ROI/biên ghép:** không thấy đường viền hình chữ nhật của ROI vì chỉ pixel trong mask bị thay đổi. Artifact nằm bên trong hình ba ký tự.
+
+### Kết quả video và flicker
+
+Hai output đều được probe lại:
+
+| Thuộc tính | TELEA | Navier–Stokes |
+|---|---:|---:|
+| Resolution | 1920×1080 | 1920×1080 |
+| FPS / frames | 24 / 192 | 24 / 192 |
+| Duration | 8,000 s | 8,000 s |
+| Audio | AAC, 8,000 s | AAC, 8,000 s |
+| Kích thước | 33.935.703 byte | 33.935.440 byte |
+
+SHA-256 của audio packet stream ở input và cả hai output đều là `85491270648754b1650ca7890bff2aefa8e94c1543303333bac1c3a887321464`, xác nhận audio được stream-copy nguyên vẹn.
+
+Temporal MAD trong mask:
+
+| Metric | Original | TELEA | NS |
+|---|---:|---:|---:|
+| Mean masked temporal MAD | 15,5847 | 10,8845 | 12,0186 |
+| Worst transition | — | frame 130→131: 30,9939 | frame 130→131: 34,5276 |
+
+Vùng context ring có MAD `21,2143`. MAD thấp hơn của vùng inpaint không chứng minh ổn định tốt; nó chủ yếu phản ánh mất texture/blur. Kiểm tra trực quan frame 128–134 cho thấy patch tối đổi hình và cường độ theo từng frame khi DNA chạy qua: **cả hai video đều flicker thấy rõ**, NS nặng hơn nhẹ tại transition xấu nhất.
+
+### Performance
+
+* TELEA inpaint ROI: `0,1854 s` cho 192 frame, khoảng `0,97 ms/frame`.
+* NS inpaint ROI: `0,1456 s`, khoảng `0,76 ms/frame`.
+* Toàn pipeline gồm tạo mask và encode đồng thời hai video: `11,85 s`, khoảng `16,2 source frame/s`.
+* Toàn bộ chạy CPU; encode chiếm phần lớn thời gian.
+
+### Kết luận
+
+TELEA là baseline tốt hơn **một chút** trên benchmark này vì temporal MAD thấp hơn và một số frame có smear nhẹ hơn NS. Tuy nhiên không phương pháp nào đạt chất lượng chấp nhận được:
+
+* logo được xóa nhưng background không được phục hồi;
+* đường DNA bị đứt;
+* vùng vá mất texture, blur/smear;
+* flicker nghiêm trọng ở nền chuyển động.
+
+Giả thuyết ban đầu được xác nhận: mask bám sát đã ngăn hư hại lan ra cả ROI, nhưng inpainting không có thông tin temporal không thể tái tạo cấu trúc thật phía dưới watermark. Giữ cả hai baseline và nguyên nhân thất bại; không tối ưu thêm inpainting trong Experiment 1.
+
+---
+
 ## Chiến lược phục hồi đề xuất — Tạm thời
 
 Chiến lược dựa trên dữ liệu thực tế sẽ được quyết định chính thức sau Experiment 0.
