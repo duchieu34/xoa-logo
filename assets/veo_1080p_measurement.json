@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "purpose": "Experiment 0 benchmark measurement; not a removal mask",
+  "source": {
+    "relative_path": "samples/ft-vid-23.mp4",
+    "sha256": "cd6cdabd5f7ba3caa631de36748f1eaed1886c3e1d2b758ccb44a46080dff964",
+    "width": 1920,
+    "height": 1080,
+    "fps": 24.0,
+    "frame_count": 192,
+    "duration_seconds": 8.0
+  },
+  "context_roi": {
+    "relative": {"x": 0.95, "y": 0.93, "width": 0.05, "height": 0.07},
+    "pixels": {"x": 1824, "y": 1004, "width": 96, "height": 76}
+  },
+  "visible_logo_bbox_estimate": {
+    "pixels": {"x": 1864, "y": 1042, "width": 32, "height": 14},
+    "relative": {"x": 0.970833, "y": 0.964815, "width": 0.016667, "height": 0.012963},
+    "note": "Visible temporal-median support only; low-alpha antialias pixels may extend 1-2 pixels."
+  },
+  "stationarity": {
+    "frames_checked": 192,
+    "search_radius_pixels": 3,
+    "best_shift_zero_zero_frames": 190,
+    "ambiguous_plus_one_x_frames": 2,
+    "conclusion": "Frame-fixed within a measurement uncertainty of 1 pixel."
+  },
+  "appearance": {
+    "nominal_color": "near-neutral white",
+    "has_transparency": true,
+    "exact_alpha_estimated": false,
+    "note": "Background color and detail modulate observed stroke pixels; exact W/alpha/B separation is underdetermined in Experiment 0."
+  }
+}

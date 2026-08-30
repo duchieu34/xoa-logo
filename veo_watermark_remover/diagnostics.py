@@ -24,7 +24,7 @@ def draw_roi(frame: np.ndarray, roi_px: tuple[int, int, int, int]) -> np.ndarray
     thickness = max(2, round(min(frame.shape[:2]) / 500))
     cv2.rectangle(result, (x, y), (x + width - 1, y + height - 1), (0, 255, 255), thickness)
     cv2.putText(
-        result, "candidate ROI", (x, max(24, y - 10)), cv2.FONT_HERSHEY_SIMPLEX,
+        result, "Veo context ROI", (x, max(24, y - 10)), cv2.FONT_HERSHEY_SIMPLEX,
         max(0.55, min(frame.shape[:2]) / 1400), (0, 255, 255), thickness, cv2.LINE_AA,
     )
     return result
@@ -61,11 +61,10 @@ def save_report(
         "experiment": 0,
         "removal_performed": False,
         "video": asdict(metadata),
-        "candidate_roi_relative": asdict(roi),
-        "candidate_roi_pixels": dict(zip(("x", "y", "width", "height"), roi_px, strict=True)),
+        "roi_relative": asdict(roi),
+        "roi_pixels": dict(zip(("x", "y", "width", "height"), roi_px, strict=True)),
         "frames": frame_records,
         "elapsed_seconds": elapsed_seconds,
-        "warning": "Candidate ROI is not a calibrated watermark mask.",
+        "warning": "The calibrated context ROI is not a shape-accurate watermark mask.",
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-

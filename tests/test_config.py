@@ -1,6 +1,6 @@
 import unittest
 
-from veo_watermark_remover.config import RelativeROI
+from veo_watermark_remover.config import DEFAULT_CANDIDATE_ROI, RelativeROI
 
 
 class RelativeROITest(unittest.TestCase):
@@ -14,7 +14,9 @@ class RelativeROITest(unittest.TestCase):
     def test_parses_cli_value(self) -> None:
         self.assertEqual(RelativeROI.parse("0.1,0.2,0.3,0.4"), RelativeROI(0.1, 0.2, 0.3, 0.4))
 
+    def test_default_1080p_context_roi(self) -> None:
+        self.assertEqual(DEFAULT_CANDIDATE_ROI.to_pixels(1920, 1080), (1824, 1004, 96, 76))
+
 
 if __name__ == "__main__":
     unittest.main()
-

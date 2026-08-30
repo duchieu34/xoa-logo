@@ -33,10 +33,10 @@ Media and generated diagnostics are ignored by Git.
 .\.venv\Scripts\python.exe main.py samples/ft-vid-23.mp4 --diagnostics diagnostics/experiment0 --frames 8
 ```
 
-If the yellow candidate rectangle does not tightly contain the logo plus useful context, override the resolution-independent ROI:
+The default ROI was calibrated from the benchmark and becomes `(1824, 1004, 96, 76)` at 1920×1080. If another default-Veo export uses different placement, override the resolution-independent ROI:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py samples/ft-vid-23.mp4 --roi 0.82,0.84,0.16,0.14
+.\.venv\Scripts\python.exe main.py samples/ft-vid-23.mp4 --roi 0.95,0.93,0.05,0.07
 ```
 
 Each number is a fraction of frame width/height: `x,y,width,height`. Experiment 0 writes original frames, ROI overlays, raw ROI crops, contact sheets, `median_roi.png`, `temporal_std_roi.png`, and `report.json`.
@@ -50,7 +50,7 @@ veo_watermark_remover/          research package
   video_io.py                   ffprobe metadata
   diagnostics.py                diagnostic artifacts
   experiment0.py                inspection-only experiment
-assets/                         future calibrated templates
+assets/                         calibrated measurements; future templates
 samples/                        local benchmark inputs (ignored)
 diagnostics/                    generated evidence (ignored)
 tests/                          unit tests
@@ -61,4 +61,3 @@ STATUS.md                       current best method and next work
 ## Scope guardrails
 
 No GUI, general object removal, heavy AI model, GPU path, or unrelated video feature is part of this phase. Experiment 1 must not begin until the benchmark evidence from Experiment 0 has been reviewed.
-

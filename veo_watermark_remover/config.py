@@ -39,7 +39,7 @@ class RelativeROI:
         return x1, y1, max(1, x2 - x1), max(1, y2 - y1)
 
 
-# A deliberately generous bottom-right candidate area. It must be calibrated from
-# the real sample before it can be considered the Veo watermark ROI.
-DEFAULT_CANDIDATE_ROI = RelativeROI(0.78, 0.78, 0.21, 0.20)
-
+# Calibrated on samples/ft-vid-23.mp4. At 1920x1080 this is a 96x76 context
+# region around the approximately 32x14 Veo mark, with 24-40 pixels of margin.
+# It is a processing ROI, not the future shape-accurate watermark mask.
+DEFAULT_CANDIDATE_ROI = RelativeROI(0.95, 0.93, 0.05, 0.07)
