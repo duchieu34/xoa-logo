@@ -23,6 +23,8 @@ Pending real sample. `samples/ft-vid-23.mp4` was not present when Experiment 0 w
 
 The default ROI `(0.78, 0.78, 0.21, 0.20)` is only a generous bottom-right candidate region and must be calibrated against the diagnostics from the real sample.
 
+The implementation was smoke-tested on a generated 640×360, 24 FPS, one-second H.264/AAC video. It correctly probed both streams, sampled the full timeline, and produced all documented diagnostics. This validates plumbing only, not watermark analysis or restoration quality.
+
 ### Advantages
 
 - Makes no destructive assumptions about the logo.
@@ -42,4 +44,3 @@ Do not proceed to Experiment 1 until the real sample is run, the ROI is calibrat
 ## Proposed recovery strategy (provisional)
 
 The data-driven strategy will be finalized after Experiment 0. The current candidate is: estimate a stable logo color/alpha template from temporal observations; invert compositing where the estimate is well-conditioned; flow-warp clean evidence from both temporal directions with forward/backward consistency checks; blend only trusted pixels; use shape-tight CPU inpainting solely for unresolved mask pixels. Scene cuts and occlusions must disable invalid temporal donors.
-

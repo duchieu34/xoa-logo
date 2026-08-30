@@ -6,7 +6,7 @@ None. Experiment 0 performs inspection only and deliberately does not remove pix
 
 ## Current milestone
 
-Project skeleton and Experiment 0 implementation are ready. Execution against the benchmark is pending because `samples/ft-vid-23.mp4` is absent.
+Project skeleton and Experiment 0 implementation are ready. Five unit tests and a synthetic H.264/AAC end-to-end smoke test pass. Execution against the benchmark is pending because `samples/ft-vid-23.mp4` is absent.
 
 ## Known problems
 
@@ -18,4 +18,3 @@ Project skeleton and Experiment 0 implementation are ready. Execution against th
 ## Next experiment
 
 Run Experiment 0 on the benchmark, visually inspect all diagnostics, tighten the ROI, and record measured watermark properties. Only then design the shape-accurate mask for Experiment 1 (TELEA versus Navier–Stokes baseline).
-
