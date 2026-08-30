@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Large/local media and generated experiment artifacts
+samples/*
+!samples/.gitkeep
+diagnostics/*
+!diagnostics/.gitkeep
+outputs/
+*.mp4
+*.mov
+*.mkv
+*.avi
+
