@@ -200,6 +200,97 @@ Giả thuyết ban đầu được xác nhận: mask bám sát đã ngăn hư h�
 
 ---
 
+## Experiment 2 — Alpha watermark và inverse compositing
+
+### Giả thuyết và giới hạn nhận dạng
+
+Mô hình thử nghiệm:
+
+```text
+I = B·(1−alpha) + W·alpha
+B = (I−W·alpha) / (1−alpha)
+```
+
+Nếu ước lượng được màu watermark `W` và alpha theo pixel, phép đảo dùng lại thông tin thật còn trong `I`, nên có thể giữ texture tốt hơn inpainting. Tuy nhiên với chỉ một chuỗi video đã compositing và background tùy ý, `W`, `alpha`, `B` không xác định duy nhất. Experiment 2 vì vậy chỉ áp dụng inverse ở pixel có bằng chứng thống kê đủ mạnh; không dùng inpaint để che phần thất bại.
+
+### Các estimator đã thử
+
+Ba hướng được giữ lại trong code/nghiên cứu:
+
+1. **Local spatial plane:** fit mặt phẳng màu từ pixel ngoài mask trong cùng frame, rồi robust least-squares trên 192 frame. Kết quả `W≈BGR(255,255,241,9)`, nhưng spatial/model residual cao trên DNA (`fit RMSE median ≈50/255`); không pixel nào qua confidence + gamut gate.
+2. **Same-frame temporal proxy:** tìm pixel lân cận có chuỗi thời gian tương quan nhất. Proxy không theo được vật thể/đường DNA đang chuyển động; `W` lệch thành khoảng `BGR(216,206,180)` và không pixel nào đáng tin.
+3. **Temporal-distribution quantile matching — phương pháp được chọn:** không yêu cầu hai pixel đồng pha theo frame. Với mỗi pixel logo, so 19 quantile từ 5% đến 95% với các pixel ngoài mask lân cận. Slope affine ước lượng `1−alpha`, intercept ước lượng `alpha·W`. Chỉ nhận proxy có dynamic range đủ lớn, `W` gần trung tính và residual thấp; sau đó gom robust estimate cho `W` toàn logo.
+
+Phương pháp thứ ba không lấy pixel frame khác để vá output. Nhiều frame chỉ dùng để học tham số tĩnh `W/alpha`; deblend frame hiện tại chỉ dùng chính `I` của frame đó.
+
+### Tham số và gate an toàn
+
+* Mask Experiment 1 được giữ nguyên: 326 pixel, trong đó 186 pixel lõi.
+* `W` toàn cục ước lượng là `BGR(255,255,255)`. Giá trị chạm biên vật lý, vì vậy kết luận an toàn là **watermark trắng/gần trắng**; không diễn giải 255 là radiance chính xác tuyệt đối.
+* Confidence tối thiểu: `0,45`.
+* Alpha an toàn: `0,03 ≤ alpha ≤ 0,80`.
+* Proxy phải cho inverse nằm trong gamut ở ít nhất 85% frame.
+* Tại từng frame, nếu inverse ra ngoài `[-2,257]` ở bất kỳ channel nào thì pixel đó không được áp dụng; input được giữ nguyên, không clamp cưỡng bức.
+
+### Alpha, confidence và coverage
+
+| Đại lượng | Kết quả |
+|---|---:|
+| Pixel trong mask | 326 |
+| Pixel lõi logo | 186 |
+| Pixel resolved tĩnh | 25 / 326 = 7,67% |
+| Pixel lõi resolved | 23 / 186 = 12,37% |
+| Pixel unresolved | 301 / 326 = 92,33% |
+| Alpha resolved min / median / max | 0,046 / 0,174 / 0,426 |
+| Alpha lớn nhất quan sát trong toàn mask | 0,862, nhưng không đủ confidence để áp dụng |
+| Confidence lớn nhất | 0,782 |
+
+Coverage thực tế mỗi frame thay đổi do gamut gate:
+
+* toàn mask: min 16, median 22, max 25 pixel;
+* pixel lõi: min 14, median 20, max 23 pixel.
+
+Lý do 301 pixel unresolved:
+
+| Lý do | Pixel |
+|---|---:|
+| Không có distribution proxy vật lý hợp lý | 162 |
+| Confidence thấp | 128 |
+| Gamut/gate khác thất bại | 11 |
+
+Không có pixel nào được tự động chuyển sang inpaint. `unresolved_mask.png` lưu rõ toàn bộ phần chưa giải quyết.
+
+### So sánh với TELEA
+
+| Metric | Original | TELEA | Alpha deblend only |
+|---|---:|---:|---:|
+| Mean logo-likeness | 0,5821 | 0,2330 | 0,5674 |
+| Mean temporal MAD trong mask | 15,5847 | 10,8845 | 15,7918 |
+| Worst transition | frame 127→128: 48,8589 | frame 130→131: 30,9939 | frame 127→128: 48,8006 |
+
+TELEA xóa chữ mạnh hơn nhưng phá DNA/texture. Alpha-only chỉ giảm logo-likeness khoảng 2,5%, nên chữ vẫn thấy rõ. Đổi lại, nó không tạo patch tối lớn, không blur cả nét chữ và không cắt đường DNA ở 301 pixel bị từ chối.
+
+Worst transition của alpha trùng với chuyển động mạnh đã tồn tại trong original và có MAD gần như bằng original. Mean MAD tăng nhẹ do số pixel áp dụng thay đổi 16–25 theo frame; kiểm tra trực quan cho thấy nguy cơ sparkle nhỏ tại pixel deblend, nhưng không có flicker dạng mảng lớn như TELEA. Mức thay đổi trung bình tại pixel thực sự áp dụng là `27,73/255`.
+
+### Video diagnostic
+
+Đã xuất `outputs/experiment2/ft-vid-23_alpha_deblend_only.mp4` để kiểm tra, không coi là output removal đạt yêu cầu.
+
+* H.264, 1920×1080, 24 FPS, 192 frame, 8 giây.
+* AAC 8 giây được stream-copy; audio hash vẫn là `85491270648754b1650ca7890bff2aefa8e94c1543303333bac1c3a887321464`, giống input.
+* Tổng pipeline gồm model fitting và encode: khoảng `7,60 s`.
+* Phần deblend thuần: khoảng `0,15 s` cho 192 frame, xấp xỉ `0,78 ms/frame`.
+
+### Kết luận bắt buộc trước Experiment 3
+
+1. **Alpha deblending phục hồi được bao nhiêu:** chỉ 25/326 pixel mask tĩnh (7,67%), tương ứng 23/186 pixel lõi (12,37%); median thực áp dụng là 22 pixel/frame và 20 pixel lõi/frame.
+2. **Pixel không thể phục hồi:** 301 pixel được lưu trong unresolved mask; chủ yếu do không có proxy phân phối phù hợp hoặc confidence thấp. Các pixel alpha cao của nét chính là nhóm khó nhất vì inverse khuếch đại sai số và dễ ra ngoài gamut.
+3. **Artifact còn lại:** logo còn gần như nguyên vẹn là lỗi chính. Ở pixel đã deblend có thay đổi màu/cường độ rời rạc và nguy cơ sparkle nhẹ; không xuất hiện smear/blur/đứt DNA dạng mảng như inpainting vì hệ thống không sửa pixel thiếu bằng dữ liệu đoán.
+
+Kết luận: alpha deblending là phép phục hồi tốt về nguyên tắc cho subset có confidence cao, nhưng **không đủ coverage để làm phương pháp độc lập** trên benchmark này. Giữ output diagnostic và maps làm nền cho hybrid sau này; không hạ confidence để tạo cảm giác xóa logo thành công.
+
+---
+
 ## Chiến lược phục hồi đề xuất — Tạm thời
 
 Chiến lược dựa trên dữ liệu thực tế sẽ được quyết định chính thức sau Experiment 0.

@@ -58,6 +58,16 @@ outputs/experiment1/ft-vid-23_ns.mp4
 
 Both outputs retain 1920×1080, 24 FPS, 192 frames, eight-second duration, and the original AAC stream. Generated videos and diagnostics remain ignored by Git.
 
+## Run Experiment 2
+
+Experiment 2 estimates a white watermark layer and per-pixel alpha/confidence from temporal brightness distributions. It only deblends pixels that pass confidence, alpha, and gamut gates; all unresolved pixels remain byte-for-byte unchanged before final video encoding.
+
+```powershell
+.\.venv\Scripts\python.exe main.py samples/ft-vid-23.mp4 --experiment 2 --diagnostics diagnostics/experiment2 --output-dir outputs/experiment2
+```
+
+The generated `ft-vid-23_alpha_deblend_only.mp4` is a diagnostic artifact, not a successful removal output. Experiment 2 deliberately does not use inpaint for its output, optical flow, or temporal reconstruction.
+
 ## Repository layout
 
 ```text
@@ -68,6 +78,8 @@ veo_watermark_remover/          research package
   diagnostics.py                diagnostic artifacts
   experiment0.py                inspection-only experiment
   experiment1.py                mask, baseline processing, encoding
+  experiment2.py                confidence-gated alpha deblending
+  alpha_recovery.py             W/alpha estimation and inverse compositing
   mask.py                       temporal three-letter mask
   inpaint.py                    TELEA and Navier–Stokes wrappers
   watermark.py                  calibrated measurement loader
