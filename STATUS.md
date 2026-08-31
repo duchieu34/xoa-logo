@@ -4,69 +4,63 @@
 
 Chưa có phương pháp nào đạt Definition of Done.
 
-* **TELEA** xóa logo mạnh hơn nhưng phá DNA, blur/smear và flicker.
-* **Alpha deblend only** giữ texture tốt hơn tại subset đáng tin cậy, nhưng chỉ xử lý được 7,67% mask nên logo vẫn rõ.
+* TELEA xóa logo mạnh nhưng phá DNA, blur/smear và flicker.
+* Alpha deblend giữ texture ở subset đáng tin cậy nhưng chỉ có model cho 25/326 pixel mask.
+* Direct temporal không Optical Flow chỉ cứu thêm 4 pixel-frame và 0/301 pixel unresolved tĩnh.
 
-Không hạ confidence và không dùng inpaint để che 301 pixel unresolved.
+Không hạ confidence, không dùng inpaint, blur hay patch để che phần thất bại.
 
 ## Milestone hiện tại
 
-**Experiment 2 đã hoàn tất trên benchmark thật.**
+**Experiment 3 đã hoàn tất trên toàn bộ benchmark 192 frame.**
 
-Mô hình được chọn là temporal-distribution quantile matching:
+Thứ tự xử lý đã triển khai:
 
 ```text
-I = B·(1−alpha) + W·alpha
-W ≈ BGR(255,255,255)
+alpha-resolved → temporal donor đáng tin cậy → giữ unresolved
 ```
 
-`W` chạm biên 255 nên chỉ kết luận watermark trắng/gần trắng. Alpha map, confidence map, resolved mask và unresolved mask đã được xuất.
+Donor chỉ đến từ cùng tọa độ ở `t±1..3`, phải alpha-clean tại source và vượt qua kiểm tra context màu/gradient. Không Optical Flow hoặc dịch chuyển không gian.
 
-Coverage:
+Coverage chính:
 
-* 25/326 pixel mask resolved — 7,67%;
-* 23/186 pixel lõi resolved — 12,37%;
-* median mỗi frame thực sự áp dụng 22 pixel, trong đó 20 pixel lõi;
-* 301/326 pixel unresolved — 92,33%.
+* 301 pixel unresolved tĩnh từ Experiment 2;
+* 534 lỗ alpha động theo frame;
+* 4 donor pixel-frame được chấp nhận, tại 2 vị trí và 4 frame;
+* cứu 0/301 pixel unresolved tĩnh;
+* cứu 4/534 lỗ alpha động, tương đương 0,75%;
+* còn 58.322 unresolved pixel-frame.
 
-Lý do unresolved:
-
-* 162 pixel không có proxy phân phối hợp lý;
-* 128 pixel confidence thấp;
-* 11 pixel thất bại ở gamut/gate khác.
+Không có donor hai phía đồng thuận. Hai donor lấy từ `t−1`, hai donor từ `t+1`.
 
 ## Output diagnostic
 
 ```text
-outputs/experiment2/ft-vid-23_alpha_deblend_only.mp4
+outputs/experiment3/ft-vid-23_direct_temporal.mp4
+diagnostics/experiment3/
 ```
 
-Video giữ 1920×1080, 24 FPS, 192 frame, 8 giây và audio AAC gốc. Đây chỉ là artifact nghiên cứu; logo vẫn thấy rõ.
+Video giữ 1920×1080, 24 FPS, 192 frame, 8 giây và audio AAC gốc. Audio hash trùng input. Diagnostics có donor-source map, confidence map, unresolved mask, coverage report và comparison cho 8 frame đại diện cùng bốn donor event.
 
 ## Đánh giá chất lượng
 
-| Lỗi/thuộc tính | TELEA | Alpha deblend only |
-|---|---|---|
-| Logo còn nhận ra | Không | Có, gần như nguyên vẹn |
-| DNA/texture tại pixel không chắc chắn | Bị đoán và phá | Giữ nguyên input |
-| Smear/blur dạng mảng | Nặng ở frame khó | Không |
-| Pixel phục hồi có confidence | Không phân biệt | 25 pixel tĩnh |
-| Unresolved được ghi rõ | Không | 301 pixel |
-| Temporal MAD | 10,8845, thấp do blur | 15,7918; original 15,5847 |
-| Artifact chính | Patch tối, đứt DNA, flicker | Logo còn sót, sparkle nhỏ cục bộ |
+Direct temporal gần như giống alpha-only về thị giác. Bốn donor không tạo ghosting/flicker nhìn thấy được, nhưng coverage quá nhỏ để giảm logo. DNA/đường sáng chuyển động vẫn unresolved; logo còn rõ. Không có blur, smear hoặc patch mới vì pixel thiếu bằng chứng được giữ nguyên.
+
+Ba nhóm từ chối chính:
+
+* 57.975 pixel-frame không có source alpha-clean;
+* 300 pixel-frame sai context;
+* 47 pixel-frame không đủ confidence hoặc đồng thuận.
 
 ## Các vấn đề đã biết
 
-* Không có ground truth background, nên `W/alpha/B` không xác định duy nhất.
-* Các nét lõi alpha cao làm inverse khuếch đại sai số và thường ra ngoài gamut.
-* Background DNA chuyển động khiến spatial plane và same-frame proxy thất bại.
-* Distribution matching chịu được lệch pha tốt hơn nhưng vẫn thiếu proxy cho phần lớn pixel.
-* Alpha-only không đủ coverage để xóa logo độc lập.
+* 301 pixel unresolved tĩnh không thể trở thành donor ở cùng tọa độ vì không frame nào có alpha recovery sạch tại các pixel đó.
+* Background DNA chuyển động làm nội dung sạch xuất hiện ở tọa độ khác giữa các frame.
+* Direct copy không có motion compensation nên không thể tái sử dụng thông tin đã dịch chuyển.
+* Không có ground truth background để đo PSNR/SSIM phục hồi tuyệt đối.
 
 ## Experiment tiếp theo
 
-Ba câu hỏi bắt buộc trước Experiment 3 đã có câu trả lời định lượng trong `RESEARCH.md` và `diagnostics/experiment2/report.json`.
+Experiment 4 nên thử Optical Flow CPU trong ROI để warp frame trước/sau về frame hiện tại, kèm forward/backward consistency, occlusion gate và confidence. Mục tiêu đầu tiên là chứng minh có thể cứu một phần 301 pixel unresolved mà không tạo ghosting/double edge trên DNA chuyển động.
 
-Experiment 3 có thể nghiên cứu temporal reconstruction từ frame trước/sau, **chưa thêm optical flow** cho đến Experiment 4. Alpha/confidence maps của Experiment 2 nên được giữ làm nguồn ưu tiên trong hybrid sau này.
-
-Experiment 3 chưa được triển khai.
+Experiment 4 **chưa được triển khai**.

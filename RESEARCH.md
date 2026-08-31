@@ -351,3 +351,64 @@ Khôi phục được hết?
 ```
 
 Tóm lại, hướng nghiên cứu hiện tại là **ưu tiên lấy lại thông tin thật trước**, tận dụng thông tin từ các frame lân cận sau đó, và chỉ dùng inpainting để **đoán những pixel cuối cùng không còn cách nào phục hồi được**.
+
+---
+
+## Experiment 3 — Direct Temporal Reconstruction (không Optical Flow)
+
+### Giả thuyết và thiết kế
+
+Experiment 3 giữ nguyên alpha recovery của Experiment 2. Với mỗi pixel unresolved ở frame `t`, hệ thống chỉ xét đúng cùng tọa độ ở `t±1`, `t±2`, `t±3`. Pixel nguồn bắt buộc đã vượt qua alpha confidence và gamut gate ở chính frame nguồn; pixel vẫn unresolved tuyệt đối không được dùng làm donor.
+
+Donor được chấm điểm bằng context ring nằm ngoài toàn bộ mask logo (radius 4 pixel), gồm sai khác màu và gradient. Hai phía trước/sau được ưu tiên khi cùng đạt gate và đồng thuận màu; nếu không, donor một phía phải đạt confidence cao hơn. Pipeline không dùng dịch chuyển không gian, Optical Flow, inpaint, blur hay patch.
+
+Một giới hạn quan trọng có thể chứng minh trước khi chạy: 301 pixel unresolved tĩnh chưa bao giờ là alpha-clean ở bất kỳ frame nào, nên direct same-coordinate temporal copy không thể tạo donor cho nhóm này. Experiment vẫn cần thiết để đo các lỗ alpha động do gamut gate thay đổi theo frame và kiểm chứng mức độ hữu ích thực tế trước Optical Flow.
+
+### Kết quả định lượng trên benchmark
+
+| Đại lượng | Kết quả |
+|---|---:|
+| Frame | 192 |
+| Pixel unresolved tĩnh từ Experiment 2 | 301 |
+| Alpha-valid pixel-frame | 4.266 |
+| Lỗ alpha động trong 25 vị trí có model | 534 |
+| Temporal donor được chấp nhận | 4 pixel-frame |
+| Vị trí pixel duy nhất được temporal cứu | 2 |
+| Frame có donor | 4 |
+| Cứu thêm trong 301 pixel unresolved | **0 / 301** |
+| Cứu lỗ alpha động | **4 / 534 = 0,75%** |
+| Unresolved còn lại | 58.322 pixel-frame |
+
+Bốn donor xuất hiện ở frame 14, 72, 87 và 90. Hai donor lấy từ `t−1`, hai donor lấy từ `t+1`; không có trường hợp hai phía đủ điều kiện đồng thuận. Confidence nằm trong khoảng `0,6001–0,6392`.
+
+Lý do từ chối theo pixel-frame:
+
+| Lý do | Số lượng |
+|---|---:|
+| Không có source alpha-clean | 57.975 |
+| Context không khớp | 300 |
+| Confidence/đồng thuận không đủ | 47 |
+
+Số unresolved mỗi frame: min 301, median 304, max 310. Direct temporal phần ROI mất `0,140 s` cho 192 frame; toàn pipeline gồm xây lại alpha diagnostics và encode mất `9,247 s`.
+
+### Chất lượng và artifact
+
+| Metric | Original | TELEA | Alpha only | Direct temporal |
+|---|---:|---:|---:|---:|
+| Mean logo-likeness | 0,582052 | 0,233025 | 0,567375 | 0,567348 |
+| Mean temporal MAD trong mask | 15,584685 | 10,884512 | 15,791845 | 15,791813 |
+| Worst transition MAD | 48,858896 | 30,993865 | 48,800613 | 48,800613 |
+
+Kiểm tra contact sheet 8 frame đại diện và riêng bốn frame có donor cho thấy direct temporal gần như không thể phân biệt với alpha-only vì chỉ thay 4 pixel-frame. Không thấy ghosting hay flicker mới do bốn donor này, nhưng đây là do coverage quá nhỏ chứ không phải phương pháp đã giải quyết chuyển động. Logo vẫn còn rõ; DNA/đường sáng chuyển động vẫn nằm trong unresolved mask. Không có smear/blur/đứt nét mới vì hệ thống giữ nguyên pixel khi không đủ bằng chứng.
+
+### Video và diagnostics
+
+Video `outputs/experiment3/ft-vid-23_direct_temporal.mp4` giữ 1920×1080, 24 FPS, 192 frame và duration 8 giây. Audio AAC được stream-copy; SHA-256 elementary audio là `85491270648754b1650ca7890bff2aefa8e94c1543303333bac1c3a887321464`, trùng input.
+
+`diagnostics/experiment3/` chứa donor-source map, temporal confidence map, unresolved mask mới, donor frequency, comparison cho 8 frame đại diện, comparison riêng các donor event và báo cáo JSON đầy đủ.
+
+### Kết luận
+
+Direct same-coordinate temporal reconstruction **không giải quyết được bất kỳ pixel nào trong 301 pixel unresolved tĩnh**. Nó chỉ vá được 4/534 lỗ áp dụng alpha theo frame, quá nhỏ để tạo cải thiện thị giác. Trên các frame DNA/đường sáng, context thay đổi hoặc pixel sạch đã dịch sang tọa độ khác, nên source bị từ chối đúng theo thiết kế.
+
+Đây là bằng chứng thực nghiệm để chuyển sang Experiment 4: muốn dùng thông tin thật từ frame lân cận phải ước lượng chuyển động và warp donor về frame hiện tại. Experiment 3 dừng tại đây; chưa triển khai Optical Flow.
