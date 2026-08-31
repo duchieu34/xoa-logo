@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 import torch.nn.functional as functional
@@ -7,6 +9,7 @@ import torch.nn.functional as functional
 from research.e2fgvi_hq.benchmark import (
     _center_overlap_weight,
     _pad_for_hq,
+    _report_path,
     _sequence_metrics,
 )
 from research.e2fgvi_hq.mmcv_cpu_shim import ConvModule, modulated_deform_conv2d
@@ -71,3 +74,7 @@ def test_segment_metrics_include_all_requested_hard_transitions() -> None:
     for before in range(130, 134):
         assert f"transition_{before}_to_{before + 1}_mad" in metrics
         assert f"transition_{before}_to_{before + 1}_mean_luma_delta" in metrics
+
+
+def test_report_path_accepts_relative_cli_input() -> None:
+    assert Path(_report_path(Path("samples/video.mp4"))) == Path("samples/video.mp4")

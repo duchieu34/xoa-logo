@@ -40,6 +40,16 @@ BASELINE_VIDEOS = {
 }
 
 
+def _report_path(path: Path) -> str:
+    """Serialize relative CLI paths and absolute Colab paths safely."""
+    if not path.is_absolute():
+        return str(path)
+    try:
+        return str(path.relative_to(WORKSPACE))
+    except ValueError:
+        return str(path)
+
+
 class PeakRssMonitor:
     def __init__(self, interval_seconds: float = 0.05) -> None:
         self.process = psutil.Process()
@@ -480,7 +490,7 @@ def main() -> int:
     )
     report: dict[str, Any] = {
         "experiment": f"E2FGVI-HQ {args.device.upper()} proof of concept",
-        "source": str(args.video.relative_to(WORKSPACE)),
+        "source": _report_path(args.video),
         "segment": {
             "start_frame": args.start_frame,
             "end_frame_inclusive": args.start_frame + args.frames - 1,
@@ -519,7 +529,7 @@ def main() -> int:
         "model": {
             "name": "E2FGVI-HQ-CVPR22",
             "parameters": sum(parameter.numel() for parameter in model.parameters()),
-            "checkpoint": str(args.checkpoint.relative_to(WORKSPACE)),
+            "checkpoint": _report_path(args.checkpoint),
             "checkpoint_sha256": "afff989d41205598a79ce24630b9c83af4b0a06f45b137979a25937d94c121a5",
             "mmcv_replacement": "isolated torchvision.ops.deform_conv2d compatibility shim",
         },
