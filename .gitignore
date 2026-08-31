@@ -10,8 +10,9 @@ samples/*
 diagnostics/*
 !diagnostics/.gitkeep
 outputs/
+models/*
+!models/.gitkeep
 *.mp4
 *.mov
 *.mkv
 *.avi
-

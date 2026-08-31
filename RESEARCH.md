@@ -499,3 +499,85 @@ Logo-likeness không cải thiện ở độ chính xác 6 chữ số. Optical F
 Optical Flow đã chứng minh có thể đưa donor thật từ tọa độ khác về frame hiện tại, nhưng **coverage chưa đủ dùng**: chỉ 2/301 vị trí unresolved, 5 pixel-frame và 0 pixel lõi logo. Nó không phục hồi DNA chạy dưới chữ Veo và không làm logo mờ đi đáng kể.
 
 Experiment 4 được giữ như một kết quả âm có định lượng. Không nên chuyển thẳng các donor confidence thấp vào output production. Trước Experiment 5 cần quyết định giữa hai hướng: cải thiện motion/occlusion model để tăng donor lõi có đồng thuận temporal, hoặc dùng hybrid fallback nhưng phải chấp nhận rằng inpaint đã được chứng minh làm hỏng DNA ở vùng chưa có thông tin thật.
+
+---
+
+## AI Experiment 1 — LaMa inpainting từng frame trên CPU
+
+### Mục tiêu và nguồn implementation
+
+Experiment này tách riêng khỏi chuỗi Experiment 0–4 cổ điển. Mục tiêu duy nhất là xác định LaMa chạy từng frame trên CPU có tạo ảnh đủ tốt để đáng tiếp tục hay không; không dùng Optical Flow, temporal reconstruction, model video hoặc GPU.
+
+Nguồn kỹ thuật:
+
+* [IOPaint LaMa implementation](https://github.com/Sanster/IOPaint/blob/main/iopaint/model/lama.py) xác nhận backend `big-lama.pt`, input RGB/mask chuẩn hóa `[0,1]`, TorchScript và hỗ trợ device CPU.
+* [IOPaint README](https://github.com/Sanster/IOPaint/blob/main/README.md) ghi rõ lệnh `iopaint ... --model=lama --device=cpu`.
+* [Bài báo LaMa tại WACV 2022](https://openaccess.thecvf.com/content/WACV2022/papers/Suvorov_Resolution-Robust_Large_Mask_Inpainting_With_Fourier_Convolutions_WACV_2022_paper.pdf) mô tả Fast Fourier Convolution và image-wide receptive field cho inpainting cấu trúc/texture.
+
+Project tích hợp trực tiếp TorchScript path tối thiểu tương đương IOPaint, không kéo web server và các model ngoài phạm vi. Model được tải từ release chính thức của Sanster; MD5 `e3aa4aaa15225a33ec84f9f4bc47e500` trùng checksum upstream.
+
+Runtime đã xác minh:
+
+```text
+PyTorch 2.7.1+cpu
+torch.version.cuda = None
+torch.cuda.is_available() = False
+device = cpu
+CPU threads = 16
+```
+
+### Crop, mask và ràng buộc pixel
+
+Không có inference full frame 1920×1080. Hai context crop native-resolution được thử:
+
+| Context | Tọa độ frame | Frame test | Median CPU time |
+|---|---|---:|---:|
+| 192×192 | `(1728,888,192,192)` | 12 | 0,5670 s/frame |
+| 256×256 | `(1664,824,256,256)` | 12 | 0,7753 s/frame |
+
+Các frame test gồm 8 frame đại diện `0,27,54,81,109,136,163,191` và chuỗi khó `128,129,130,131`.
+
+Mask 326 pixel từ Experiment 1 được ánh xạ nguyên vẹn vào crop; không dùng bbox chữ nhật. Prediction LaMa chỉ được chép vào pixel mask. Độ thay đổi lớn nhất ngoài mask trước encode là **0**, xác nhận toàn bộ pixel không thuộc watermark được giữ byte-for-byte ở tầng xử lý.
+
+Video đầy đủ dùng context 256×256 để ưu tiên context/chất lượng. Screening cho thấy 256 chỉ cải thiện logo-likeness rất nhỏ so với 192 (`0,207985` so với `0,208381`) và Laplacian energy gần như tương đương (`133,43` so với `132,90`), trong khi chậm hơn khoảng 37%. Vì vậy 256 không cho lợi ích thị giác đủ rõ; 192 là lựa chọn tốc độ hợp lý hơn nếu chỉ tái chạy baseline này.
+
+### Kết quả toàn video
+
+| Metric | Original | TELEA | Alpha-only | LaMa 256 |
+|---|---:|---:|---:|---:|
+| Mean logo-likeness | 0,582052 | 0,233025 | 0,567375 | **0,222844** |
+| Mean temporal MAD trong mask | 15,584685 | 10,884512 | 15,791845 | **19,735217** |
+| MAD transition 130→131 | 29,319018 | 30,993865 | 29,631902 | **36,579755** |
+| Mean raw-mask Laplacian energy | 481,18 | 35,56 | 504,13 | 143,97 |
+
+LaMa giảm logo-likeness nhiều hơn TELEA khoảng 4,4% tương đối, tức hình dạng chữ bị xóa khá sạch. Tuy nhiên temporal MAD cao hơn original 26,6% và cao hơn TELEA 81,3%. Worst transition của LaMa là frame `43→44`, MAD `55,748466`, không trùng chuyển động xấu nhất của original. Đây là dấu hiệu model từng frame tự sinh patch khác nhau chứ không chỉ phản ánh chuyển động thật.
+
+Laplacian energy cho thấy LaMa giữ nhiều high-frequency hơn TELEA, nhưng vẫn chỉ khoảng 30% original. Metric này còn bị logo gốc làm tăng năng lượng, nên không được dùng độc lập để tuyên bố chất lượng; kiểm tra trực quan mới là quyết định chính.
+
+### Đánh giá trực quan
+
+* **Background dễ:** chữ Veo hầu như biến mất; LaMa ít tạo smear mềm rộng như TELEA, nhưng thường sinh mảng tối/texture sai màu ngay trong nét mask.
+* **DNA/đường sáng:** model không tiếp tục đúng cấu trúc đi xuyên qua logo. Đường sáng bị đứt, biến thành vùng tối hoặc các nét giả không nối với hai đầu thật.
+* **Blur/smear:** đỡ featureless hơn TELEA nhưng vẫn mất chi tiết rõ rệt; patch có xu hướng tối và cứng ở frame phức tạp.
+* **Logo còn sót:** thấp hơn TELEA theo logo-likeness; viền anti-alias nhỏ có thể còn do chủ đích chỉ sửa tight mask.
+* **Flicker:** nghiêm trọng. Transition 130→131 cho thấy hình dạng mảng tối và nét giả thay đổi rõ giữa hai frame liên tiếp. Per-frame LaMa không có bất kỳ cơ chế temporal consistency nào.
+
+Hai context 192 và 256 cho kết quả gần như giống nhau tại transition 130→131; tăng context không sửa được lỗi cấu trúc hoặc flicker.
+
+### Hiệu năng CPU và video
+
+| Phương pháp | Mean time/frame | Processing FPS |
+|---|---:|---:|
+| TELEA ROI | 0,000768 s | 1302,68 |
+| Alpha ROI | 0,000865 s | 1155,64 |
+| LaMa 256 crop | 0,886177 s | 1,128 |
+
+LaMa chậm khoảng 1.154 lần TELEA trên benchmark này. Tổng pipeline gồm screening hai context, full inference, diagnostics và encode mất `202,02 s`.
+
+Video `outputs/ai_experiment1/ft-vid-23_lama_cpu.mp4` giữ H.264, 1920×1080, 24 FPS, 192 frame và duration 8 giây. Audio AAC được stream-copy; SHA-256 elementary stream `85491270648754b1650ca7890bff2aefa8e94c1543303333bac1c3a887321464` trùng input.
+
+### Kết luận
+
+**LaMa CPU từng frame không đủ chất lượng để tiếp tục như phương pháp removal độc lập.** Nó xóa chữ tốt hơn baseline cổ điển một chút và giữ texture tốt hơn TELEA ở một số frame dễ, nhưng thất bại ở tiêu chí quan trọng nhất: không phục hồi đúng DNA/đường sáng và làm flicker tăng mạnh.
+
+Giữ LaMa như một image-quality baseline và bằng chứng rằng model ảnh đơn lẻ không giải quyết temporal consistency. Không chuyển sang model video hoặc Optical Flow trong AI Experiment 1. Nếu nghiên cứu AI tiếp, cần một experiment mới có temporal conditioning/consistency rõ ràng; không được coi việc chạy LaMa từng frame là hoàn thành.
