@@ -50,6 +50,14 @@ DEFAULT_REPORT = (
 )
 
 
+def _report_path(path: Path) -> str:
+    """Prefer a workspace-relative path, but support Colab /content paths."""
+    try:
+        return str(path.relative_to(WORKSPACE))
+    except ValueError:
+        return str(path)
+
+
 def _read_crop_video(video_path: Path, crop: Any, frame_count: int) -> np.ndarray:
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
@@ -384,7 +392,7 @@ def main() -> int:
             "top_10_e2fgvi_transitions": top_transitions,
         },
         "output": {
-            "path": str(output_video.relative_to(WORKSPACE)),
+            "path": _report_path(output_video),
             "metadata": asdict(output_metadata),
             "input_audio_adts_sha256": input_audio_hash,
             "output_audio_adts_sha256": output_audio_hash,
