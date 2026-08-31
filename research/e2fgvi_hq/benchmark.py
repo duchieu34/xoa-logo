@@ -13,6 +13,12 @@ import numpy as np
 import psutil
 import torch
 
+from research.e2fgvi_hq.device import (
+    peak_memory_bytes,
+    reset_peak_memory,
+    resolve_device,
+    synchronize,
+)
 from research.e2fgvi_hq.smoke_test import DEFAULT_CHECKPOINT, WORKSPACE, load_model
 from veo_watermark_remover.config import DEFAULT_CANDIDATE_ROI
 from veo_watermark_remover.diagnostics import make_contact_sheet, write_image
@@ -113,14 +119,22 @@ def run_e2fgvi(
     reference_step: int = 10,
     aggregation: str = "legacy_average",
     progress: Callable[[dict[str, Any]], None] | None = None,
+    device: torch.device | str | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     if aggregation not in {"legacy_average", "center_weighted"}:
         raise ValueError(f"Unsupported overlap aggregation: {aggregation}")
     if reference_step < 1:
         raise ValueError("Reference step must be positive")
+    target = torch.device(device) if device is not None else next(model.parameters()).device
     rgb = bgr_crops[..., ::-1].copy()
-    images = torch.from_numpy(rgb).permute(0, 3, 1, 2).float().div_(127.5).sub_(1.0)
-    mask_tensor = torch.from_numpy((mask > 0).astype(np.float32))[None, None]
+    images = (
+        torch.from_numpy(rgb)
+        .permute(0, 3, 1, 2)
+        .to(device=target, dtype=torch.float32)
+        .div_(127.5)
+        .sub_(1.0)
+    )
+    mask_tensor = torch.from_numpy((mask > 0).astype(np.float32))[None, None].to(target)
     masks = mask_tensor.repeat(1, len(bgr_crops), 1, 1, 1)
     images = images.unsqueeze(0)
     predictions: list[np.ndarray | None] = [None] * len(bgr_crops)
@@ -145,8 +159,10 @@ def run_e2fgvi(
             selected_masks = masks[:, selected_ids]
             masked_images = selected_images * (1.0 - selected_masks)
             padded, original_size = _pad_for_hq(masked_images)
+            synchronize(target)
             started = time.perf_counter()
             output, _ = model(padded, num_local_frames=len(neighbor_ids))
+            synchronize(target)
             elapsed = time.perf_counter() - started
             window_seconds.append(elapsed)
             window_record = {
@@ -166,7 +182,7 @@ def run_e2fgvi(
                 .div_(2.0)
                 .clamp_(0.0, 1.0)
                 .permute(0, 2, 3, 1)
-                .cpu()
+                .to("cpu")
                 .numpy()
                 * 255.0
             ).astype(np.uint8)
@@ -229,8 +245,8 @@ def _sequence_metrics(
     roi_x, roi_y, roi_width, roi_height = roi_offset
     results: dict[str, Any] = {}
     transition_locals = {
-        "130_to_131": 131 - start_frame,
-        "132_to_133": 133 - start_frame,
+        f"{before}_to_{before + 1}": before + 1 - start_frame
+        for before in range(130, 134)
     }
     for name, crops in sequences.items():
         rois = crops[:, roi_y : roi_y + roi_height, roi_x : roi_x + roi_width]
@@ -267,6 +283,16 @@ def _sequence_metrics(
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             laplacian = np.abs(cv2.Laplacian(gray, cv2.CV_32F, ksize=3))
             laplacian_energies.append(float(laplacian[raw_mask > 0].mean()))
+        transition_metrics: dict[str, float | None] = {}
+        for transition_name in transition_locals:
+            mad = transitions[transition_name]
+            luma_delta = luma_deltas[transition_name]
+            transition_metrics[f"transition_{transition_name}_mad"] = (
+                round(float(mad), 6) if mad is not None else None
+            )
+            transition_metrics[f"transition_{transition_name}_mean_luma_delta"] = (
+                round(float(luma_delta), 6) if luma_delta is not None else None
+            )
         results[name] = {
             "mean_logo_likeness": round(
                 float(np.mean([_logo_likeness(roi, raw_mask) for roi in rois])), 6
@@ -274,22 +300,7 @@ def _sequence_metrics(
             "mean_masked_temporal_mad": round(float(temporal.mean()), 6),
             "worst_transition_to_absolute_frame": start_frame + worst,
             "worst_transition_mad": round(float(temporal[worst - 1]), 6),
-            "transition_130_to_131_mad": round(float(transitions["130_to_131"]), 6)
-            if transitions["130_to_131"] is not None
-            else None,
-            "transition_132_to_133_mad": round(float(transitions["132_to_133"]), 6)
-            if transitions["132_to_133"] is not None
-            else None,
-            "transition_130_to_131_mean_luma_delta": round(
-                float(luma_deltas["130_to_131"]), 6
-            )
-            if luma_deltas["130_to_131"] is not None
-            else None,
-            "transition_132_to_133_mean_luma_delta": round(
-                float(luma_deltas["132_to_133"]), 6
-            )
-            if luma_deltas["132_to_133"] is not None
-            else None,
+            **transition_metrics,
             "mean_raw_mask_laplacian_energy": round(
                 float(np.mean(laplacian_energies)), 6
             ),
@@ -317,6 +328,11 @@ def _write_diagnostics(
     start_frame: int,
     fps: float,
 ) -> list[int]:
+    method_order = [
+        name
+        for name in ("original", "telea", "alpha", "lama", "e2fgvi_hq")
+        if name in sequences
+    ]
     count = len(next(iter(sequences.values())))
     desired = [108, 120, 128, 130, 131, 136, 144, 155]
     selected = [frame for frame in desired if start_frame <= frame < start_frame + count]
@@ -326,11 +342,11 @@ def _write_diagnostics(
     sheets: list[np.ndarray] = []
     for absolute in selected:
         local = absolute - start_frame
-        images = [sequences[name][local] for name in ("original", "telea", "alpha", "lama", "e2fgvi_hq")]
+        images = [sequences[name][local] for name in method_order]
         sheet = make_contact_sheet(
             images,
-            ["Original", "TELEA", "Alpha-only", "LaMa", "E2FGVI-HQ"],
-            columns=5,
+            [name.replace("_", " ").title() for name in method_order],
+            columns=len(method_order),
         )
         write_image(output_dir / "comparisons" / f"frame_{absolute:06d}.png", sheet)
         sheets.append(sheet)
@@ -344,19 +360,19 @@ def _write_diagnostics(
     )
     transition_frames: list[np.ndarray] = []
     transition_labels: list[str] = []
-    for name in ("original", "telea", "alpha", "lama", "e2fgvi_hq"):
-        for absolute in (130, 131):
+    for name in method_order:
+        for absolute in range(130, 135):
             if start_frame <= absolute < start_frame + count:
                 transition_frames.append(sequences[name][absolute - start_frame])
                 transition_labels.append(f"{name} f{absolute}")
     if transition_frames:
         write_image(
-            output_dir / "transition_130_131.png",
-            make_contact_sheet(transition_frames, transition_labels, columns=2),
+            output_dir / "transitions_130_134.png",
+            make_contact_sheet(transition_frames, transition_labels, columns=5),
         )
     _write_video(output_dir / "e2fgvi_hq_crop.mp4", sequences["e2fgvi_hq"], fps)
     comparison_video = np.concatenate(
-        [sequences[name] for name in ("original", "telea", "alpha", "lama", "e2fgvi_hq")],
+        [sequences[name] for name in method_order],
         axis=2,
     )
     _write_video(output_dir / "five_method_comparison.mp4", comparison_video, fps)
@@ -364,13 +380,14 @@ def _write_diagnostics(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="CPU-only E2FGVI-HQ Veo benchmark")
+    parser = argparse.ArgumentParser(description="E2FGVI-HQ Veo benchmark")
     parser.add_argument("--video", type=Path, default=DEFAULT_VIDEO)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--start-frame", type=int, default=108)
     parser.add_argument("--frames", type=int, default=48)
     parser.add_argument("--crop-size", type=int, default=256, choices=[192, 224, 256])
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--neighbor-stride", type=int, default=5)
     parser.add_argument("--reference-step", type=int, default=10)
     parser.add_argument(
@@ -382,11 +399,13 @@ def main() -> int:
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--skip-baselines", action="store_true")
     args = parser.parse_args()
+    benchmark_started = time.perf_counter()
     if args.frames < 2:
         raise ValueError("At least two frames are required for video inference")
     if args.reference_step < 1:
         raise ValueError("Reference step must be positive")
     torch.set_num_threads(max(1, args.threads))
+    device_info = resolve_device(args.device)
     metadata = probe_video(args.video)
     if args.start_frame < 0 or args.start_frame + args.frames > metadata.frame_count:
         raise ValueError("Requested segment lies outside the source video")
@@ -408,9 +427,11 @@ def main() -> int:
     process = psutil.Process()
     rss_before_model = process.memory_info().rss
     model_started = time.perf_counter()
-    model = load_model(args.checkpoint)
+    model = load_model(args.checkpoint, device_info.device)
+    synchronize(device_info.device)
     model_load_seconds = time.perf_counter() - model_started
     rss_after_model = process.memory_info().rss
+    reset_peak_memory(device_info.device)
     inference_started = time.perf_counter()
     with PeakRssMonitor() as rss_monitor:
         restored, inference = run_e2fgvi(
@@ -420,7 +441,9 @@ def main() -> int:
             neighbor_stride=args.neighbor_stride,
             reference_step=args.reference_step,
             aggregation=args.aggregation,
+            device=device_info.device,
         )
+    synchronize(device_info.device)
     inference_seconds = time.perf_counter() - inference_started
 
     sequences = {"original": source_crops, "e2fgvi_hq": restored}
@@ -456,7 +479,7 @@ def main() -> int:
         args.output_dir, sequences, context_mask, args.start_frame, metadata.fps
     )
     report: dict[str, Any] = {
-        "experiment": "E2FGVI-HQ CPU proof of concept",
+        "experiment": f"E2FGVI-HQ {args.device.upper()} proof of concept",
         "source": str(args.video.relative_to(WORKSPACE)),
         "segment": {
             "start_frame": args.start_frame,
@@ -468,7 +491,8 @@ def main() -> int:
             and args.start_frame + args.frames > 131,
         },
         "runtime": {
-            "device": "cpu",
+            "device": args.device,
+            "device_name": device_info.name,
             "torch": torch.__version__,
             "torch_cuda_build": torch.version.cuda,
             "cuda_available": torch.cuda.is_available(),
@@ -477,16 +501,27 @@ def main() -> int:
             "inference_total_seconds": round(inference_seconds, 6),
             "inference_seconds_per_output_frame": round(inference_seconds / args.frames, 6),
             "inference_output_fps": round(args.frames / inference_seconds, 6),
+            "total_runtime_seconds": round(time.perf_counter() - benchmark_started, 6),
             "rss_before_model_mb": round(rss_before_model / 1024**2, 3),
             "rss_after_model_mb": round(rss_after_model / 1024**2, 3),
             "peak_rss_mb": round(rss_monitor.peak_bytes / 1024**2, 3),
+            "peak_vram_mb": (
+                round(peak_memory_bytes(device_info.device) / 1024**2, 3)
+                if peak_memory_bytes(device_info.device) is not None
+                else None
+            ),
+            "total_vram_mb": (
+                round(device_info.total_memory_bytes / 1024**2, 3)
+                if device_info.total_memory_bytes is not None
+                else None
+            ),
         },
         "model": {
             "name": "E2FGVI-HQ-CVPR22",
             "parameters": sum(parameter.numel() for parameter in model.parameters()),
             "checkpoint": str(args.checkpoint.relative_to(WORKSPACE)),
             "checkpoint_sha256": "afff989d41205598a79ce24630b9c83af4b0a06f45b137979a25937d94c121a5",
-            "mmcv_replacement": "isolated torchvision.ops.deform_conv2d CPU shim",
+            "mmcv_replacement": "isolated torchvision.ops.deform_conv2d compatibility shim",
         },
         "crop": {
             "x": crop_box.x,
@@ -508,6 +543,10 @@ def main() -> int:
             "neighbor_stride": args.neighbor_stride,
             "reference_step": args.reference_step,
             "aggregation": args.aggregation,
+        },
+        "cpu_baselines_seconds_per_frame": {
+            "benchmark_48_frames": 2.487,
+            "full_video_192_frames": 6.622,
         },
         "metrics": metrics,
         "diagnostic_frames": selected,

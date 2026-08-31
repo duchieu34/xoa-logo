@@ -4,7 +4,11 @@ import pytest
 import torch
 import torch.nn.functional as functional
 
-from research.e2fgvi_hq.benchmark import _center_overlap_weight, _pad_for_hq
+from research.e2fgvi_hq.benchmark import (
+    _center_overlap_weight,
+    _pad_for_hq,
+    _sequence_metrics,
+)
 from research.e2fgvi_hq.mmcv_cpu_shim import ConvModule, modulated_deform_conv2d
 
 
@@ -52,3 +56,18 @@ def test_center_overlap_weight_prefers_window_center_symmetrically() -> None:
 def test_center_overlap_weight_rejects_frame_outside_window() -> None:
     with pytest.raises(ValueError, match="outside"):
         _center_overlap_weight(frame_index=11, center=5, neighbor_stride=5)
+
+
+def test_segment_metrics_include_all_requested_hard_transitions() -> None:
+    crops = torch.zeros((48, 192, 192, 3), dtype=torch.uint8).numpy()
+    mask = torch.ones((32, 64), dtype=torch.uint8).mul(255).numpy()
+    metrics = _sequence_metrics(
+        {"e2fgvi_hq": crops},
+        roi_offset=(0, 0, 64, 32),
+        raw_mask=mask,
+        final_mask=mask,
+        start_frame=108,
+    )["e2fgvi_hq"]
+    for before in range(130, 134):
+        assert f"transition_{before}_to_{before + 1}_mad" in metrics
+        assert f"transition_{before}_to_{before + 1}_mean_luma_delta" in metrics

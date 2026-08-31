@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from research.e2fgvi_hq.device import resolve_device, synchronize
 from research.e2fgvi_hq.mmcv_cpu_shim import install_mmcv_cpu_shim
 
 
@@ -17,7 +18,7 @@ DEFAULT_CHECKPOINT = (
 )
 
 
-def load_model(checkpoint: Path) -> torch.nn.Module:
+def load_model(checkpoint: Path, device: torch.device | str = "cpu") -> torch.nn.Module:
     if not UPSTREAM.is_dir():
         raise FileNotFoundError(f"Official E2FGVI clone not found: {UPSTREAM}")
     if not checkpoint.is_file():
@@ -26,7 +27,8 @@ def load_model(checkpoint: Path) -> torch.nn.Module:
     sys.path.insert(0, str(UPSTREAM))
     from model.e2fgvi_hq import InpaintGenerator
 
-    model = InpaintGenerator(init_weights=False).cpu().eval()
+    target = torch.device(device)
+    model = InpaintGenerator(init_weights=False).to(target).eval()
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     incompatible = model.load_state_dict(state, strict=True)
     if incompatible.missing_keys or incompatible.unexpected_keys:
@@ -35,15 +37,18 @@ def load_model(checkpoint: Path) -> torch.nn.Module:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Load and minimally execute E2FGVI-HQ on CPU")
+    parser = argparse.ArgumentParser(description="Load and minimally execute E2FGVI-HQ")
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--forward", action="store_true", help="Run a 2-frame 60x108 forward pass")
     args = parser.parse_args()
     if args.threads > 0:
         torch.set_num_threads(args.threads)
+    device_info = resolve_device(args.device)
     started = time.perf_counter()
-    model = load_model(args.checkpoint)
+    model = load_model(args.checkpoint, device_info.device)
+    synchronize(device_info.device)
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     print(
         {
@@ -57,10 +62,13 @@ def main() -> int:
         }
     )
     if args.forward:
-        sample = torch.zeros((1, 2, 3, 60, 108), dtype=torch.float32)
+        sample = torch.zeros(
+            (1, 2, 3, 60, 108), dtype=torch.float32, device=device_info.device
+        )
         with torch.inference_mode():
             forward_started = time.perf_counter()
             prediction, flows = model(sample, num_local_frames=2)
+            synchronize(device_info.device)
         print(
             {
                 "prediction_shape": tuple(prediction.shape),

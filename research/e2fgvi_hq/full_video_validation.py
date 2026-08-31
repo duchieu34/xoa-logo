@@ -15,6 +15,12 @@ import numpy as np
 import psutil
 import torch
 
+from research.e2fgvi_hq.device import (
+    peak_memory_bytes,
+    reset_peak_memory,
+    resolve_device,
+    synchronize,
+)
 from research.e2fgvi_hq.benchmark import (
     BASELINE_VIDEOS,
     DEFAULT_VIDEO,
@@ -207,7 +213,11 @@ def _write_transition_diagnostics(
     transitions: list[dict[str, Any]],
     mask: np.ndarray,
 ) -> None:
-    names = ("original", "telea", "lama", "e2fgvi_hq")
+    names = tuple(
+        name
+        for name in ("original", "telea", "lama", "e2fgvi_hq")
+        if name in sequences
+    )
     for rank, transition in enumerate(transitions, start=1):
         before = int(transition["from_frame"])
         after = int(transition["to_frame"])
@@ -236,7 +246,7 @@ def _window_progress(record: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Full-video E2FGVI-HQ CPU validation")
+    parser = argparse.ArgumentParser(description="Full-video E2FGVI-HQ validation")
     parser.add_argument("--video", type=Path, default=DEFAULT_VIDEO)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--crop-size", type=int, default=192, choices=[192])
@@ -244,12 +254,14 @@ def main() -> int:
     parser.add_argument("--reference-step", type=int, default=10, choices=[10])
     parser.add_argument("--aggregation", default="legacy_average", choices=["legacy_average"])
     parser.add_argument("--threads", type=int, default=4, choices=[4])
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     args = parser.parse_args()
 
     validation_started = time.perf_counter()
     torch.set_num_threads(args.threads)
+    device_info = resolve_device(args.device)
     metadata = probe_video(args.video)
     roi_px = DEFAULT_CANDIDATE_ROI.to_pixels(metadata.width, metadata.height)
     roi_stack = _collect_roi_stack(args.video, roi_px)
@@ -263,9 +275,11 @@ def main() -> int:
     process = psutil.Process()
     rss_before_model = process.memory_info().rss
     model_started = time.perf_counter()
-    model = load_model(args.checkpoint)
+    model = load_model(args.checkpoint, device_info.device)
+    synchronize(device_info.device)
     model_load_seconds = time.perf_counter() - model_started
     rss_after_model = process.memory_info().rss
+    reset_peak_memory(device_info.device)
     inference_started = time.perf_counter()
     with PeakRssMonitor() as rss_monitor:
         restored_crops, inference = run_e2fgvi(
@@ -276,11 +290,13 @@ def main() -> int:
             reference_step=args.reference_step,
             aggregation=args.aggregation,
             progress=_window_progress,
+            device=device_info.device,
         )
+    synchronize(device_info.device)
     inference_seconds = time.perf_counter() - inference_started
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    output_video = args.output_dir / f"{args.video.stem}_e2fgvi_hq_cpu_full.mp4"
+    output_video = args.output_dir / f"{args.video.stem}_e2fgvi_hq_{args.device}_full.mp4"
     encode_seconds = _encode_full_video(args.video, output_video, restored_crops, crop)
     output_metadata = probe_video(output_video)
     input_audio_hash = _audio_sha256(args.video)
@@ -289,9 +305,8 @@ def main() -> int:
     sequences = {"original": original_crops, "e2fgvi_hq": restored_crops}
     for name in ("telea", "lama"):
         path = BASELINE_VIDEOS[name]
-        if not path.is_file():
-            raise FileNotFoundError(f"Missing {name} baseline: {path}")
-        sequences[name] = _read_crop_video(path, crop, metadata.frame_count)
+        if path.is_file():
+            sequences[name] = _read_crop_video(path, crop, metadata.frame_count)
 
     sequence_metrics = {
         name: _sequence_metrics(crops, context_mask) for name, crops in sequences.items()
@@ -314,8 +329,8 @@ def main() -> int:
         )
 
     report: dict[str, Any] = {
-        "experiment": "E2FGVI-HQ full-video CPU validation",
-        "cpu_only": True,
+        "experiment": f"E2FGVI-HQ full-video {args.device.upper()} validation",
+        "cpu_only": args.device == "cpu",
         "configuration": {
             "crop_size": args.crop_size,
             "internal_padding": [240, 216],
@@ -326,7 +341,8 @@ def main() -> int:
         },
         "input": asdict(metadata),
         "runtime": {
-            "device": "cpu",
+            "device": args.device,
+            "device_name": device_info.name,
             "torch": torch.__version__,
             "torch_cuda_build": torch.version.cuda,
             "cuda_available": torch.cuda.is_available(),
@@ -339,6 +355,16 @@ def main() -> int:
             "rss_before_model_mb": round(rss_before_model / 1024**2, 3),
             "rss_after_model_mb": round(rss_after_model / 1024**2, 3),
             "peak_rss_mb": round(rss_monitor.peak_bytes / 1024**2, 3),
+            "peak_vram_mb": (
+                round(peak_memory_bytes(device_info.device) / 1024**2, 3)
+                if peak_memory_bytes(device_info.device) is not None
+                else None
+            ),
+            "total_vram_mb": (
+                round(device_info.total_memory_bytes / 1024**2, 3)
+                if device_info.total_memory_bytes is not None
+                else None
+            ),
         },
         "mask": {
             "raw_pixels": mask_result.raw_pixel_count,
