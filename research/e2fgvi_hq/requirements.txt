@@ -1,0 +1,4 @@
+-r ../../requirements-ai.txt
+torchvision==0.22.1+cpu
+psutil==7.0.0
+gdown==5.2.0

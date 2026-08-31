@@ -16,3 +16,9 @@ models/*
 *.mov
 *.mkv
 *.avi
+
+# Isolated upstream research clone and large E2FGVI artifacts
+third_party/E2FGVI/
+research/e2fgvi_hq/checkpoints/*
+!research/e2fgvi_hq/checkpoints/.gitkeep
+research/e2fgvi_hq/outputs/
