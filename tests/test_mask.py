@@ -46,6 +46,17 @@ class ShapeMaskTest(unittest.TestCase):
                 image, (100, 100, 50, 30), (110, 110, 30, 12), dilation=1
             )
 
+    def test_uses_confirmed_template_when_bright_background_merges_bbox(self) -> None:
+        image = np.zeros((30, 50, 3), dtype=np.uint8)
+        cv2.rectangle(image, (10, 10), (39, 21), (230, 230, 230), -1)
+        cv2.rectangle(image, (10, 10), (13, 21), (0, 0, 0), -1)
+        result = build_shape_mask(
+            image, (100, 100, 50, 30), (110, 110, 30, 12), dilation=0
+        )
+        self.assertEqual(result.selection_strategy, "confirmed_template_fallback")
+        self.assertGreater(result.raw_pixel_count, 100)
+        self.assertLess(result.raw_pixel_count, 30 * 12)
+
 
 if __name__ == "__main__":
     unittest.main()
