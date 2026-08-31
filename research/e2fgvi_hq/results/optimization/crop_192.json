@@ -1,0 +1,489 @@
+{
+  "experiment": "E2FGVI-HQ CPU proof of concept",
+  "source": "samples\\ft-vid-23.mp4",
+  "segment": {
+    "start_frame": 108,
+    "end_frame_inclusive": 155,
+    "frame_count": 48,
+    "fps": 24.0,
+    "duration_seconds": 2.0,
+    "contains_transition_130_to_131": true
+  },
+  "runtime": {
+    "device": "cpu",
+    "torch": "2.7.1+cpu",
+    "torch_cuda_build": null,
+    "cuda_available": false,
+    "threads": 4,
+    "model_load_seconds": 0.631127,
+    "inference_total_seconds": 162.005494,
+    "inference_seconds_per_output_frame": 3.375114,
+    "inference_output_fps": 0.296286,
+    "rss_before_model_mb": 579.277,
+    "rss_after_model_mb": 903.094,
+    "peak_rss_mb": 2110.613
+  },
+  "model": {
+    "name": "E2FGVI-HQ-CVPR22",
+    "parameters": 41117887,
+    "checkpoint": "research\\e2fgvi_hq\\checkpoints\\E2FGVI-HQ-CVPR22.pth",
+    "checkpoint_sha256": "afff989d41205598a79ce24630b9c83af4b0a06f45b137979a25937d94c121a5",
+    "mmcv_replacement": "isolated torchvision.ops.deform_conv2d CPU shim"
+  },
+  "crop": {
+    "x": 1728,
+    "y": 888,
+    "width": 192,
+    "height": 192,
+    "hq_internal_padded_height": 240,
+    "hq_internal_padded_width": 216
+  },
+  "mask": {
+    "raw_pixels": 186,
+    "final_pixels": 326,
+    "context_pixels": 326,
+    "dilation": 1,
+    "upstream_extra_dilation_iterations": 0
+  },
+  "inference_windows": {
+    "window_seconds": [
+      6.112745,
+      9.587136,
+      10.88515,
+      22.46912,
+      28.370217,
+      21.366336,
+      19.325147,
+      14.42874,
+      17.012908,
+      12.036502
+    ],
+    "window_seconds_summary": {
+      "min": 6.112745299935341,
+      "p25": 11.172988199978136,
+      "median": 15.720824150019325,
+      "p75": 20.85603905003518,
+      "max": 28.370217100018635
+    },
+    "window_records": [
+      {
+        "center_local": 0,
+        "neighbors": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "references": [
+          10,
+          20,
+          30,
+          40
+        ],
+        "input_shape": [
+          1,
+          10,
+          3,
+          240,
+          216
+        ],
+        "seconds": 6.112745
+      },
+      {
+        "center_local": 5,
+        "neighbors": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "references": [
+          20,
+          30,
+          40
+        ],
+        "input_shape": [
+          1,
+          14,
+          3,
+          240,
+          216
+        ],
+        "seconds": 9.587136
+      },
+      {
+        "center_local": 10,
+        "neighbors": [
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "references": [
+          0,
+          20,
+          30,
+          40
+        ],
+        "input_shape": [
+          1,
+          15,
+          3,
+          240,
+          216
+        ],
+        "seconds": 10.88515
+      },
+      {
+        "center_local": 15,
+        "neighbors": [
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "references": [
+          0,
+          30,
+          40
+        ],
+        "input_shape": [
+          1,
+          14,
+          3,
+          240,
+          216
+        ],
+        "seconds": 22.46912
+      },
+      {
+        "center_local": 20,
+        "neighbors": [
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25
+        ],
+        "references": [
+          0,
+          10,
+          30,
+          40
+        ],
+        "input_shape": [
+          1,
+          15,
+          3,
+          240,
+          216
+        ],
+        "seconds": 28.370217
+      },
+      {
+        "center_local": 25,
+        "neighbors": [
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "references": [
+          0,
+          10,
+          40
+        ],
+        "input_shape": [
+          1,
+          14,
+          3,
+          240,
+          216
+        ],
+        "seconds": 21.366336
+      },
+      {
+        "center_local": 30,
+        "neighbors": [
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35
+        ],
+        "references": [
+          0,
+          10,
+          20,
+          40
+        ],
+        "input_shape": [
+          1,
+          15,
+          3,
+          240,
+          216
+        ],
+        "seconds": 19.325147
+      },
+      {
+        "center_local": 35,
+        "neighbors": [
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40
+        ],
+        "references": [
+          0,
+          10,
+          20
+        ],
+        "input_shape": [
+          1,
+          14,
+          3,
+          240,
+          216
+        ],
+        "seconds": 14.42874
+      },
+      {
+        "center_local": 40,
+        "neighbors": [
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45
+        ],
+        "references": [
+          0,
+          10,
+          20,
+          30
+        ],
+        "input_shape": [
+          1,
+          15,
+          3,
+          240,
+          216
+        ],
+        "seconds": 17.012908
+      },
+      {
+        "center_local": 45,
+        "neighbors": [
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47
+        ],
+        "references": [
+          0,
+          10,
+          20,
+          30
+        ],
+        "input_shape": [
+          1,
+          12,
+          3,
+          240,
+          216
+        ],
+        "seconds": 12.036502
+      }
+    ],
+    "contributions_per_frame": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      3,
+      2,
+      2,
+      2,
+      2,
+      2,
+      1,
+      1
+    ],
+    "aggregation": "legacy_average",
+    "aggregation_weights_per_frame": null,
+    "outside_mask_max_absolute_change": 0
+  },
+  "configuration": {
+    "neighbor_stride": 5,
+    "reference_step": 10,
+    "aggregation": "legacy_average"
+  },
+  "metrics": {
+    "original": {
+      "mean_logo_likeness": 0.573617,
+      "mean_masked_temporal_mad": 20.834095,
+      "worst_transition_to_absolute_frame": 128,
+      "worst_transition_mad": 48.858896,
+      "transition_130_to_131_mad": 29.319018,
+      "transition_132_to_133_mad": 38.972393,
+      "transition_130_to_131_mean_luma_delta": 12.858902,
+      "transition_132_to_133_mean_luma_delta": -9.702454,
+      "mean_raw_mask_laplacian_energy": 448.767696
+    },
+    "e2fgvi_hq": {
+      "mean_logo_likeness": 0.226101,
+      "mean_masked_temporal_mad": 22.209698,
+      "worst_transition_to_absolute_frame": 133,
+      "worst_transition_mad": 54.981595,
+      "transition_130_to_131_mad": 31.242331,
+      "transition_132_to_133_mad": 54.981595,
+      "transition_130_to_131_mean_luma_delta": 8.088959,
+      "transition_132_to_133_mean_luma_delta": -15.668716,
+      "mean_raw_mask_laplacian_energy": 68.675403
+    },
+    "telea": {
+      "mean_logo_likeness": 0.195206,
+      "mean_masked_temporal_mad": 15.827242,
+      "worst_transition_to_absolute_frame": 131,
+      "worst_transition_mad": 31.579755,
+      "transition_130_to_131_mad": 31.579755,
+      "transition_132_to_133_mad": 17.432515,
+      "transition_130_to_131_mean_luma_delta": -1.438652,
+      "transition_132_to_133_mean_luma_delta": -0.242332,
+      "mean_raw_mask_laplacian_energy": 37.995296
+    },
+    "alpha": {
+      "mean_logo_likeness": 0.553718,
+      "mean_masked_temporal_mad": 20.677849,
+      "worst_transition_to_absolute_frame": 128,
+      "worst_transition_mad": 48.404908,
+      "transition_130_to_131_mad": 29.730061,
+      "transition_132_to_133_mad": 38.03681,
+      "transition_130_to_131_mean_luma_delta": 13.441719,
+      "transition_132_to_133_mean_luma_delta": -9.466248,
+      "mean_raw_mask_laplacian_energy": 464.054211
+    },
+    "lama": {
+      "mean_logo_likeness": 0.194727,
+      "mean_masked_temporal_mad": 26.802767,
+      "worst_transition_to_absolute_frame": 132,
+      "worst_transition_mad": 52.886503,
+      "transition_130_to_131_mad": 36.782209,
+      "transition_132_to_133_mad": 48.297546,
+      "transition_130_to_131_mean_luma_delta": 4.5,
+      "transition_132_to_133_mean_luma_delta": -10.039879,
+      "mean_raw_mask_laplacian_energy": 118.528673
+    }
+  },
+  "diagnostic_frames": [
+    108,
+    120,
+    128,
+    130,
+    131,
+    136,
+    144,
+    155
+  ],
+  "baseline_sources": {
+    "telea": "outputs\\experiment1\\ft-vid-23_telea.mp4",
+    "alpha": "outputs\\experiment2\\ft-vid-23_alpha_deblend_only.mp4",
+    "lama": "outputs\\ai_experiment1\\ft-vid-23_lama_cpu.mp4"
+  }
+}

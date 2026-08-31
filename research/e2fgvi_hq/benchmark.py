@@ -97,19 +97,32 @@ def _reference_indices(
     return [index for index in range(0, length, reference_step) if index not in neighbor_ids]
 
 
+def _center_overlap_weight(frame_index: int, center: int, neighbor_stride: int) -> float:
+    distance = abs(frame_index - center)
+    if distance > neighbor_stride:
+        raise ValueError("Frame lies outside the temporal neighbor window")
+    return float(neighbor_stride + 1 - distance)
+
+
 def run_e2fgvi(
     model: torch.nn.Module,
     bgr_crops: np.ndarray,
     mask: np.ndarray,
     neighbor_stride: int = 5,
     reference_step: int = 10,
+    aggregation: str = "legacy_average",
 ) -> tuple[np.ndarray, dict[str, Any]]:
+    if aggregation not in {"legacy_average", "center_weighted"}:
+        raise ValueError(f"Unsupported overlap aggregation: {aggregation}")
+    if reference_step < 1:
+        raise ValueError("Reference step must be positive")
     rgb = bgr_crops[..., ::-1].copy()
     images = torch.from_numpy(rgb).permute(0, 3, 1, 2).float().div_(127.5).sub_(1.0)
     mask_tensor = torch.from_numpy((mask > 0).astype(np.float32))[None, None]
     masks = mask_tensor.repeat(1, len(bgr_crops), 1, 1, 1)
     images = images.unsqueeze(0)
     predictions: list[np.ndarray | None] = [None] * len(bgr_crops)
+    prediction_weights = np.zeros(len(bgr_crops), dtype=np.float32)
     contributions = np.zeros(len(bgr_crops), dtype=np.int32)
     window_seconds: list[float] = []
     window_shapes: list[dict[str, Any]] = []
@@ -157,16 +170,32 @@ def run_e2fgvi(
             predicted = predicted[..., ::-1]
             for offset, frame_index in enumerate(neighbor_ids):
                 value = predicted[offset].astype(np.float32)
-                if predictions[frame_index] is None:
-                    predictions[frame_index] = value
+                if aggregation == "center_weighted":
+                    weight = _center_overlap_weight(frame_index, center, neighbor_stride)
+                    if predictions[frame_index] is None:
+                        predictions[frame_index] = value * weight
+                    else:
+                        predictions[frame_index] += value * weight
+                    prediction_weights[frame_index] += weight
                 else:
-                    predictions[frame_index] = (predictions[frame_index] + value) * 0.5
+                    if predictions[frame_index] is None:
+                        predictions[frame_index] = value
+                    else:
+                        predictions[frame_index] = (predictions[frame_index] + value) * 0.5
                 contributions[frame_index] += 1
 
     if any(value is None for value in predictions):
         missing = [index for index, value in enumerate(predictions) if value is None]
         raise RuntimeError(f"No E2FGVI prediction for local frames: {missing}")
-    predicted_stack = np.stack([value.astype(np.uint8) for value in predictions if value is not None])
+    if aggregation == "center_weighted":
+        normalized = [
+            value / prediction_weights[index]
+            for index, value in enumerate(predictions)
+            if value is not None
+        ]
+    else:
+        normalized = [value for value in predictions if value is not None]
+    predicted_stack = np.stack([value.astype(np.uint8) for value in normalized])
     completed = bgr_crops.copy()
     completed[:, mask > 0] = predicted_stack[:, mask > 0]
     outside_difference = int(
@@ -179,6 +208,10 @@ def run_e2fgvi(
         "window_seconds_summary": _quantiles(np.asarray(window_seconds)),
         "window_records": window_shapes,
         "contributions_per_frame": contributions.tolist(),
+        "aggregation": aggregation,
+        "aggregation_weights_per_frame": prediction_weights.tolist()
+        if aggregation == "center_weighted"
+        else None,
         "outside_mask_max_absolute_change": outside_difference,
     }
 
@@ -192,7 +225,10 @@ def _sequence_metrics(
 ) -> dict[str, Any]:
     roi_x, roi_y, roi_width, roi_height = roi_offset
     results: dict[str, Any] = {}
-    transition_local = 131 - start_frame
+    transition_locals = {
+        "130_to_131": 131 - start_frame,
+        "132_to_133": 133 - start_frame,
+    }
     for name, crops in sequences.items():
         rois = crops[:, roi_y : roi_y + roi_height, roi_x : roi_x + roi_width]
         temporal = np.asarray(
@@ -203,13 +239,31 @@ def _sequence_metrics(
             dtype=np.float64,
         )
         worst = int(np.argmax(temporal)) + 1 if temporal.size else 0
-        transition = (
-            _masked_temporal_mad(
-                rois[transition_local - 1], rois[transition_local], final_mask
-            )
-            if 0 < transition_local < len(rois)
-            else None
-        )
+        transitions: dict[str, float | None] = {}
+        luma_deltas: dict[str, float | None] = {}
+        selected = final_mask > 0
+        for transition_name, transition_local in transition_locals.items():
+            if 0 < transition_local < len(rois):
+                transitions[transition_name] = _masked_temporal_mad(
+                    rois[transition_local - 1], rois[transition_local], final_mask
+                )
+                previous_gray = cv2.cvtColor(
+                    rois[transition_local - 1], cv2.COLOR_BGR2GRAY
+                ).astype(np.float32)
+                current_gray = cv2.cvtColor(
+                    rois[transition_local], cv2.COLOR_BGR2GRAY
+                ).astype(np.float32)
+                luma_deltas[transition_name] = float(
+                    current_gray[selected].mean() - previous_gray[selected].mean()
+                )
+            else:
+                transitions[transition_name] = None
+                luma_deltas[transition_name] = None
+        laplacian_energies = []
+        for roi in rois:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            laplacian = np.abs(cv2.Laplacian(gray, cv2.CV_32F, ksize=3))
+            laplacian_energies.append(float(laplacian[raw_mask > 0].mean()))
         results[name] = {
             "mean_logo_likeness": round(
                 float(np.mean([_logo_likeness(roi, raw_mask) for roi in rois])), 6
@@ -217,9 +271,25 @@ def _sequence_metrics(
             "mean_masked_temporal_mad": round(float(temporal.mean()), 6),
             "worst_transition_to_absolute_frame": start_frame + worst,
             "worst_transition_mad": round(float(temporal[worst - 1]), 6),
-            "transition_130_to_131_mad": round(float(transition), 6)
-            if transition is not None
+            "transition_130_to_131_mad": round(float(transitions["130_to_131"]), 6)
+            if transitions["130_to_131"] is not None
             else None,
+            "transition_132_to_133_mad": round(float(transitions["132_to_133"]), 6)
+            if transitions["132_to_133"] is not None
+            else None,
+            "transition_130_to_131_mean_luma_delta": round(
+                float(luma_deltas["130_to_131"]), 6
+            )
+            if luma_deltas["130_to_131"] is not None
+            else None,
+            "transition_132_to_133_mean_luma_delta": round(
+                float(luma_deltas["132_to_133"]), 6
+            )
+            if luma_deltas["132_to_133"] is not None
+            else None,
+            "mean_raw_mask_laplacian_energy": round(
+                float(np.mean(laplacian_energies)), 6
+            ),
         }
     return results
 
@@ -296,16 +366,23 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--start-frame", type=int, default=108)
     parser.add_argument("--frames", type=int, default=48)
-    parser.add_argument("--crop-size", type=int, default=256, choices=[192, 256])
+    parser.add_argument("--crop-size", type=int, default=256, choices=[192, 224, 256])
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--neighbor-stride", type=int, default=5)
     parser.add_argument("--reference-step", type=int, default=10)
+    parser.add_argument(
+        "--aggregation",
+        choices=["legacy_average", "center_weighted"],
+        default="legacy_average",
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--skip-baselines", action="store_true")
     args = parser.parse_args()
     if args.frames < 2:
         raise ValueError("At least two frames are required for video inference")
+    if args.reference_step < 1:
+        raise ValueError("Reference step must be positive")
     torch.set_num_threads(max(1, args.threads))
     metadata = probe_video(args.video)
     if args.start_frame < 0 or args.start_frame + args.frames > metadata.frame_count:
@@ -339,6 +416,7 @@ def main() -> int:
             context_mask,
             neighbor_stride=args.neighbor_stride,
             reference_step=args.reference_step,
+            aggregation=args.aggregation,
         )
     inference_seconds = time.perf_counter() - inference_started
 
@@ -423,6 +501,11 @@ def main() -> int:
             "upstream_extra_dilation_iterations": 0,
         },
         "inference_windows": inference,
+        "configuration": {
+            "neighbor_stride": args.neighbor_stride,
+            "reference_step": args.reference_step,
+            "aggregation": args.aggregation,
+        },
         "metrics": metrics,
         "diagnostic_frames": selected,
         "baseline_sources": {

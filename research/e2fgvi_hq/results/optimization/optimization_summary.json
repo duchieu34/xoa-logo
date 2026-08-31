@@ -1,0 +1,100 @@
+{
+  "control256": {
+    "seconds_per_frame": 5.7977,
+    "peak_rss_mb": 3143.598,
+    "logo_likeness": 0.227565,
+    "temporal_mad": 22.426511,
+    "mad_130_131": 30.723926,
+    "mad_132_133": 57.156442,
+    "luma_delta_132_133": -19.641098,
+    "laplacian": 71.995296,
+    "padded": [
+      300,
+      324
+    ]
+  },
+  "crop192": {
+    "seconds_per_frame": 3.375114,
+    "peak_rss_mb": 2110.613,
+    "logo_likeness": 0.226101,
+    "temporal_mad": 22.209698,
+    "mad_130_131": 31.242331,
+    "mad_132_133": 54.981595,
+    "luma_delta_132_133": -15.668716,
+    "laplacian": 68.675403,
+    "padded": [
+      240,
+      216
+    ]
+  },
+  "crop224": {
+    "seconds_per_frame": 5.942525,
+    "peak_rss_mb": 2696.715,
+    "logo_likeness": 0.228899,
+    "temporal_mad": 22.622243,
+    "mad_130_131": 30.533742,
+    "mad_132_133": 53.837423,
+    "luma_delta_132_133": -17.475464,
+    "laplacian": 68.010081,
+    "padded": [
+      240,
+      324
+    ]
+  },
+  "ref20": {
+    "seconds_per_frame": 6.535199,
+    "peak_rss_mb": 2836.301,
+    "logo_likeness": 0.227767,
+    "temporal_mad": 22.43369,
+    "mad_130_131": 30.779141,
+    "mad_132_133": 56.638037,
+    "luma_delta_132_133": -20.208595,
+    "laplacian": 71.250224,
+    "padded": [
+      300,
+      324
+    ]
+  },
+  "ref30": {
+    "seconds_per_frame": 7.689133,
+    "peak_rss_mb": 2281.223,
+    "logo_likeness": 0.227343,
+    "temporal_mad": 22.481203,
+    "mad_130_131": 30.828221,
+    "mad_132_133": 56.97546,
+    "luma_delta_132_133": -21.435577,
+    "laplacian": 71.650313,
+    "padded": [
+      300,
+      324
+    ]
+  },
+  "weighted": {
+    "seconds_per_frame": 9.276855,
+    "peak_rss_mb": 3131.238,
+    "logo_likeness": 0.227308,
+    "temporal_mad": 22.578319,
+    "mad_130_131": 30.871166,
+    "mad_132_133": 58.53681,
+    "luma_delta_132_133": -19.794479,
+    "laplacian": 72.717294,
+    "padded": [
+      300,
+      324
+    ]
+  },
+  "final_best": {
+    "seconds_per_frame": 2.486885,
+    "peak_rss_mb": 2114.621,
+    "logo_likeness": 0.226101,
+    "temporal_mad": 22.209698,
+    "mad_130_131": 31.242331,
+    "mad_132_133": 54.981595,
+    "luma_delta_132_133": -15.668716,
+    "laplacian": 68.675403,
+    "padded": [
+      240,
+      216
+    ]
+  }
+}
