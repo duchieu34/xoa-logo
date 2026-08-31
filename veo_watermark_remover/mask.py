@@ -18,6 +18,8 @@ class MaskResult:
     raw_pixel_count: int
     final_pixel_count: int
     local_logo_bbox: tuple[int, int, int, int]
+    selection_strategy: str
+    detected_component_count: int
 
 
 def collect_temporal_median(video_path: Path, roi_px: tuple[int, int, int, int]) -> tuple[np.ndarray, int]:
@@ -64,9 +66,37 @@ def build_shape_mask(
 
     count, labels, stats, _ = cv2.connectedComponentsWithStats(threshold, connectivity=8)
     components = sorted(range(1, count), key=lambda label: int(stats[label, cv2.CC_STAT_AREA]), reverse=True)
-    if len(components) < 3:
-        raise RuntimeError(f"Expected three Veo letter components, found {len(components)}")
-    selected = components[:3]
+    detected_component_count = len(components)
+    if detected_component_count >= 3:
+        selected = components[:3]
+        selection_strategy = "three_largest_components"
+    elif detected_component_count in {1, 2}:
+        # Compression or a brighter background can bridge adjacent Veo letters.
+        # Accept the merged foreground only when it still has a plausible mark-like
+        # extent and never approaches a filled rectangular patch.
+        selected = components
+        candidate = np.isin(labels, selected)
+        ys, xs = np.nonzero(candidate)
+        pixel_count = int(candidate.sum())
+        bbox_area = logo_width * logo_height
+        coverage = pixel_count / max(1, bbox_area)
+        span_width = int(xs.max() - xs.min() + 1)
+        span_height = int(ys.max() - ys.min() + 1)
+        plausible = (
+            0.03 <= coverage <= 0.70
+            and span_width >= max(3, round(logo_width * 0.55))
+            and span_height >= max(3, round(logo_height * 0.35))
+        )
+        if not plausible:
+            raise RuntimeError(
+                "Adaptive Veo mask rejected implausible merged foreground: "
+                f"components={detected_component_count}, pixels={pixel_count}, "
+                f"coverage={coverage:.3f}, span={span_width}x{span_height}, "
+                f"bbox={logo_width}x{logo_height}"
+            )
+        selection_strategy = "adaptive_merged_components"
+    else:
+        raise RuntimeError("No plausible Veo foreground found inside the measured logo bbox")
     raw_mask = np.isin(labels, selected).astype(np.uint8) * 255
 
     if dilation:
@@ -89,10 +119,12 @@ def build_shape_mask(
         raw_mask=raw_mask,
         mask=final_mask,
         median_roi=median_roi,
-        component_count=3,
+        component_count=len(selected),
         raw_pixel_count=int(np.count_nonzero(raw_mask)),
         final_pixel_count=int(np.count_nonzero(final_mask)),
         local_logo_bbox=(local_x, local_y, logo_width, logo_height),
+        selection_strategy=selection_strategy,
+        detected_component_count=detected_component_count,
     )
 
 
@@ -110,4 +142,3 @@ def save_mask_diagnostics(output_dir: Path, result: MaskResult) -> None:
     write_image(output_dir / "mask_raw.png", result.raw_mask)
     write_image(output_dir / "mask_dilated_1px.png", result.mask)
     write_image(output_dir / "mask_overlay_median.png", mask_overlay(result.median_roi, result.mask))
-

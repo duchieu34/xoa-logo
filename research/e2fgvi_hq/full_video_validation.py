@@ -383,6 +383,8 @@ def main() -> int:
             "crop_boundary_max_absolute_change_before_encoding": _crop_boundary_max_difference(
                 original_crops, restored_crops
             ),
+            "selection_strategy": mask_result.selection_strategy,
+            "detected_component_count": mask_result.detected_component_count,
         },
         "inference_windows": inference,
         "quality": {

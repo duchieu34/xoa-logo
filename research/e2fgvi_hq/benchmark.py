@@ -537,6 +537,8 @@ def main() -> int:
             "context_pixels": int(np.count_nonzero(context_mask)),
             "dilation": 1,
             "upstream_extra_dilation_iterations": 0,
+            "selection_strategy": mask_result.selection_strategy,
+            "detected_component_count": mask_result.detected_component_count,
         },
         "inference_windows": inference,
         "configuration": {
