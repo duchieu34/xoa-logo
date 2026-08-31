@@ -2,71 +2,96 @@
 
 ## Phương pháp tốt nhất hiện tại
 
-Chưa có phương pháp nào đạt Definition of Done.
+**E2FGVI-HQ CPU với crop 192×192** hiện cho chất lượng phục hồi đường DNA tốt nhất
+trong các phương pháp đã thử, nhưng chưa đạt Definition of Done vì còn flicker và
+brightness/texture wobble cục bộ tại frame 132–134.
 
-* TELEA xóa logo nhưng blur/smear, đứt DNA và flicker.
-* Alpha-only giữ dữ liệu thật nhưng chỉ xử lý 25/326 pixel mask.
-* Direct temporal và Optical Flow có coverage quá thấp.
-* LaMa CPU xóa chữ tốt hơn TELEA một chút nhưng không phục hồi đúng DNA và có flicker cao nhất.
+Các baseline:
+
+- TELEA xóa logo nhưng blur/smear và làm đứt DNA.
+- Alpha-only giữ dữ liệu thật nhưng chỉ xử lý một phần rất nhỏ mask.
+- Direct temporal và Optical Flow cổ điển có coverage quá thấp.
+- LaMa xóa chữ nhưng sinh blotch tối, texture giả và flicker cao.
+- E2FGVI-HQ giữ DNA/đường sáng tốt nhất, không còn logo dễ nhận ra và không có seam,
+  nhưng worst transition vẫn cao hơn chuyển động quan sát được trong source.
 
 ## Milestone hiện tại
 
-**AI Experiment 1 — LaMa CPU đã hoàn tất trên toàn bộ benchmark 192 frame.**
-
-Implementation dùng model TorchScript `big-lama.pt` tương đương IOPaint:
+**Full-video Validation E2FGVI-HQ CPU đã hoàn tất trên toàn bộ 192 frame / 8 giây.**
 
 ```text
-torch 2.7.1+cpu
-CUDA build: None
-CUDA available: False
-device: CPU
+crop_size       = 192
+internal_pad    = 240 x 216
+neighbor_stride = 5
+reference_step  = 10
+aggregation     = legacy_average
+threads         = 4
+device          = CPU
+CUDA available  = False
 ```
 
-Không dùng Optical Flow, model video, full-frame AI inference, blur hoặc flat patch.
+Không sửa upstream, không tích hợp pipeline chính và không thêm temporal smoothing
+hay phương pháp mới.
 
-## Crop và mask
+## Output integrity
 
-* Đã thử context 192×192 và 256×256 trên 12 frame dễ/khó.
-* Video đầy đủ dùng crop 256×256 tại góc dưới phải.
-* Mask giữ nguyên 326 pixel từ Experiment 1.
-* LaMa chỉ sửa pixel trong mask; max absolute change ngoài mask trước encode bằng 0.
-* 192 và 256 cho chất lượng gần như tương đương; 192 nhanh hơn khoảng 27–37% tùy lượt đo.
-
-## Kết quả chất lượng
-
-| Metric | TELEA | Alpha-only | LaMa 256 |
-|---|---:|---:|---:|
-| Logo-likeness | 0,233025 | 0,567375 | **0,222844** |
-| Temporal MAD | 10,884512 | 15,791845 | **19,735217** |
-| Transition 130→131 MAD | 30,993865 | 29,631902 | **36,579755** |
-| Raw-mask Laplacian energy | 35,56 | 504,13 | 143,97 |
-
-LaMa xóa hình dạng logo khá sạch và giữ nhiều chi tiết tần số cao hơn TELEA. Tuy nhiên:
-
-* DNA/đường sáng vẫn bị đứt;
-* model sinh mảng tối và texture không đúng;
-* patch thay đổi hình dạng giữa các frame;
-* transition 130→131 flicker rõ;
-* worst transition là 43→44 với MAD 55,748466.
-
-Kết luận: **LaMa per-frame không đủ chất lượng để tiếp tục như phương pháp độc lập.**
+- Resolution: 1920×1080.
+- FPS: 24.
+- Frame count: 192.
+- Duration: 8,0 giây.
+- Video: H.264.
+- Audio: AAC stream copy; SHA-256 bitstream trùng input.
+- Max thay đổi ngoài mask trước encode: 0.
+- Max thay đổi tại crop boundary trước encode: 0.
 
 ## Hiệu năng
 
-* TELEA: 0,768 ms/frame.
-* Alpha: 0,865 ms/frame.
-* LaMa 256 CPU: 0,886 s/frame, khoảng 1,128 processing FPS.
-* Tổng benchmark: 202,02 giây.
+- Tổng inference: 1.271,366 giây.
+- Inference/frame: 6,621696 giây.
+- Throughput: 0,151019 FPS.
+- Encode/mux: 6,319 giây.
+- Tổng validation: 1.287,655 giây, khoảng 21,46 phút.
+- Peak RSS: 4.216,637 MB.
 
-## Output
+## Chất lượng toàn video
+
+| Phương pháp | Mean temporal MAD | Worst MAD |
+|---|---:|---:|
+| Original | 15,584685 | 48,858896 |
+| TELEA | 11,075194 | 31,579755 |
+| LaMa | 19,373414 | 54,546012 |
+| E2FGVI-HQ | 14,675810 | 57,748466 |
+
+Top failure E2FGVI:
+
+1. 132→133: MAD 57,748466, luma delta -15,920250.
+2. 131→132: MAD 45,714724.
+3. 133→134: MAD 41,555215, luma delta -19,598156.
+
+Đánh giá trực quan:
+
+- logo không còn nhận ra rõ;
+- DNA/cyan edge liên tục tốt hơn TELEA và LaMa;
+- không có seam ROI hoặc patch đen phẳng;
+- không thấy ghost/double-edge kéo dài;
+- còn wobble mạnh tại 132–134;
+- còn imprint tối/texture mềm nhẹ tại một số frame như 100–103.
+
+## Quyết định
+
+**Chưa tích hợp E2FGVI-HQ vào pipeline chính và chưa coi là hoàn thành.**
+
+Full validation chứng minh model chạy CPU end-to-end và giữ media đúng, nhưng failure
+cục bộ 132–134 còn quá rõ. Bước nghiên cứu tiếp theo phải tập trung vào cách giảm
+temporal outlier mà không làm mềm hoặc phá DNA; không được đánh đổi bằng blur.
+
+## Artifacts
 
 ```text
-outputs/ai_experiment1/ft-vid-23_lama_cpu.mp4
-diagnostics/ai_experiment1/
+research/e2fgvi_hq/results/full_validation_report.json
+research/e2fgvi_hq/outputs/full_validation/ft-vid-23_e2fgvi_hq_cpu_full.mp4
+research/e2fgvi_hq/outputs/full_validation/top_transitions/
+research/e2fgvi_hq/outputs/full_validation/top_transitions_tight/
+research/e2fgvi_hq/outputs/full_validation/dark_patch_frames/
+research/e2fgvi_hq/outputs/full_validation/sequences/
 ```
-
-Video giữ 1920×1080, 24 FPS, 192 frame, 8 giây và audio AAC gốc. Audio SHA-256 trùng input. Model local trong `models/` đã được gitignore và xác minh MD5 upstream.
-
-## Bước tiếp theo
-
-Không tự động chuyển sang Optical Flow hoặc model video trong milestone này. LaMa được giữ làm baseline ảnh đơn. Nếu tiếp tục hướng AI, experiment mới phải có temporal conditioning/consistency và phải chứng minh giảm flicker tại 130→131 mà không phá DNA.

@@ -328,3 +328,129 @@ Report có thể truy vết:
 - `research/e2fgvi_hq/results/optimization/optimization_summary.json`
 - `research/e2fgvi_hq/results/optimization/final_best.json`
 - các report độc lập `crop_*.json`, `ref_step_*.json`, `weighted_256.json`.
+
+---
+
+## 9. Full-video Validation — 192 frame / 8 giây
+
+### Phạm vi
+
+Validation dùng nguyên cấu hình thắng, không tuning thêm:
+
+```text
+crop_size       = 192
+internal_pad    = 240 x 216
+neighbor_stride = 5
+reference_step  = 10
+aggregation     = legacy_average
+threads         = 4
+```
+
+Model/checkpoint, mask 326 pixel và code upstream không đổi. AI chỉ chạy trên ROI
+192×192; sau inference, crop được ghép streaming vào frame gốc 1920×1080. Không
+thêm smoothing, flow ngoài model hoặc phương pháp phục hồi mới.
+
+### Output và media integrity
+
+| Thuộc tính | Input | Output |
+|---|---:|---:|
+| Resolution | 1920×1080 | 1920×1080 |
+| FPS | 24 | 24 |
+| Frame count | 192 | 192 |
+| Duration | 8,0 s | 8,0 s |
+| Video codec | H.264 | H.264 |
+| Audio | AAC | AAC, stream copy |
+
+AAC được trích lại dưới dạng ADTS từ input/output và có cùng SHA-256:
+
+```text
+9b4130e48c041645eff681b635849880a549a78b414eea049430f479d2b37b38
+```
+
+### Hiệu năng full video
+
+| Chỉ số | Kết quả |
+|---|---:|
+| Tổng inference | 1.271,366 giây |
+| Inference/frame | 6,621696 giây |
+| Throughput | 0,151019 FPS |
+| Encode + mux | 6,319 giây |
+| Tổng validation | 1.287,655 giây / 21,46 phút |
+| Peak RSS | 4.216,637 MB |
+
+Full run chậm hơn ngoại suy từ đoạn 48 frame vì mỗi cửa sổ tham chiếu toàn bộ video:
+25–30 frame input/cửa sổ thay vì khoảng 10–15. Có 39 cửa sổ temporal. Runtime từng
+cửa sổ dao động 17,9–60,8 giây do tải/thermal CPU.
+
+### Temporal metrics toàn video
+
+| Phương pháp | Mean MAD | Median | P75 | Max |
+|---|---:|---:|---:|---:|
+| Original có watermark | 15,584685 | 15,328221 | 20,699387 | 48,858896 |
+| TELEA | 11,075194 | 9,027607 | 16,489264 | 31,579755 |
+| LaMa | 19,373414 | 18,018405 | 26,139571 | 54,546012 |
+| **E2FGVI-HQ** | **14,675810** | **12,475460** | **20,753067** | **57,748466** |
+
+TELEA có MAD thấp vì làm mềm/đứt chi tiết, không đồng nghĩa chất lượng tốt hơn.
+E2FGVI có mean MAD thấp hơn original và LaMa, nhưng max cao nhất và tập trung vào
+một cụm chuyển động khó.
+
+Hai transition trọng điểm:
+
+| Transition | Original MAD | TELEA | LaMa | E2FGVI-HQ |
+|---|---:|---:|---:|---:|
+| 130→131 | 29,319018 | 31,579755 | 36,782209 | 32,021472 |
+| 132→133 | 38,972393 | 17,432515 | 48,297546 | 57,748466 |
+
+### Top 10 transition E2FGVI mạnh nhất
+
+| Hạng | Transition | MAD | Mean-luma delta |
+|---:|---:|---:|---:|
+| 1 | 132→133 | 57,748466 | -15,920250 |
+| 2 | 131→132 | 45,714724 | -0,960121 |
+| 3 | 133→134 | 41,555215 | -19,598156 |
+| 4 | 122→123 | 37,668712 | 2,907974 |
+| 5 | 121→122 | 35,404908 | 3,754601 |
+| 6 | 43→44 | 34,871166 | -6,386505 |
+| 7 | 32→33 | 34,297546 | 0,475464 |
+| 8 | 123→124 | 33,334356 | -5,561348 |
+| 9 | 34→35 | 32,414110 | 5,579750 |
+| 10 | 149→150 | 32,383436 | 5,917175 |
+
+Ở 132→133, original có MAD 38,972393 và luma delta -9,702454; E2FGVI tăng lên
+57,748466 và -15,920250. Đây là bằng chứng định lượng rằng wobble còn nghiêm trọng
+cục bộ, dù phần lớn video ổn định hơn LaMa.
+
+### Logo, DNA, ghosting, seam và patch tối
+
+- Mean logo likeness: original 0,582052; TELEA 0,224637; LaMa 0,212697;
+  E2FGVI 0,241284. Inspection không thấy ba ký tự Veo còn nhận ra rõ ở output.
+- E2FGVI giữ DNA/cyan edge liên tục tốt nhất; TELEA smear/đứt nét, LaMa sinh blotch
+  tối và texture giả rõ hơn.
+- Không thấy ghost/double-edge kéo dài trong top-10 transition.
+- Max absolute change ngoài mask và tại boundary crop trước encode đều bằng 0;
+  không có seam ROI do crop chỉ là context, không phải vùng replace toàn phần.
+- Dark-patch proxy thấp nhất tại frame 136 (-40,108723), sau đó 12–15 và 101–103.
+  Phần lớn phản ánh background thật đang tối; không thấy patch đen phẳng. Tuy nhiên
+  sequence 100–103 còn imprint tối/texture mềm nhẹ tại mask.
+- Sequence 127–136 giữ đường DNA hợp lý nhưng brightness/texture đổi mạnh tại
+  132–134, khớp spike temporal.
+
+### Kết luận Full-video Validation
+
+**Cấu hình hiện tại chưa đủ ổn định để đạt Definition of Done hoặc tích hợp
+pipeline chính.** Lý do quyết định là spike 132–134 cao hơn chuyển động quan sát
+được trong source, cùng luma wobble và imprint texture cục bộ. Đây không phải lỗi
+seam, audio, metadata hay logo còn sót.
+
+E2FGVI-HQ vẫn là phương pháp nghiên cứu có chất lượng phục hồi đường/DNA tốt nhất
+đã thử: ít ghost hơn LaMa, ít smear hơn TELEA và mean temporal MAD toàn video hợp
+lý. Nhưng chất lượng trung bình tốt không bù được failure cục bộ rõ tại transition
+khó. Không tự động thêm smoothing hoặc đổi model trong milestone này.
+
+Artifacts:
+
+- report: `research/e2fgvi_hq/results/full_validation_report.json`;
+- full video: `research/e2fgvi_hq/outputs/full_validation/ft-vid-23_e2fgvi_hq_cpu_full.mp4`;
+- diagnostics: `top_transitions/`, `top_transitions_tight/`, `dark_patch_frames/`,
+  `sequences/` trong thư mục output full validation.

@@ -4,6 +4,7 @@ import argparse
 import json
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +112,7 @@ def run_e2fgvi(
     neighbor_stride: int = 5,
     reference_step: int = 10,
     aggregation: str = "legacy_average",
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     if aggregation not in {"legacy_average", "center_weighted"}:
         raise ValueError(f"Unsupported overlap aggregation: {aggregation}")
@@ -147,15 +149,16 @@ def run_e2fgvi(
             output, _ = model(padded, num_local_frames=len(neighbor_ids))
             elapsed = time.perf_counter() - started
             window_seconds.append(elapsed)
-            window_shapes.append(
-                {
-                    "center_local": center,
-                    "neighbors": neighbor_ids,
-                    "references": reference_ids,
-                    "input_shape": list(padded.shape),
-                    "seconds": round(elapsed, 6),
-                }
-            )
+            window_record = {
+                "center_local": center,
+                "neighbors": neighbor_ids,
+                "references": reference_ids,
+                "input_shape": list(padded.shape),
+                "seconds": round(elapsed, 6),
+            }
+            window_shapes.append(window_record)
+            if progress is not None:
+                progress(window_record)
             height, width = original_size
             predicted = output[: len(neighbor_ids), :, :height, :width]
             predicted = (
