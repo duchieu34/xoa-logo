@@ -412,3 +412,90 @@ Video `outputs/experiment3/ft-vid-23_direct_temporal.mp4` giữ 1920×1080, 24 F
 Direct same-coordinate temporal reconstruction **không giải quyết được bất kỳ pixel nào trong 301 pixel unresolved tĩnh**. Nó chỉ vá được 4/534 lỗ áp dụng alpha theo frame, quá nhỏ để tạo cải thiện thị giác. Trên các frame DNA/đường sáng, context thay đổi hoặc pixel sạch đã dịch sang tọa độ khác, nên source bị từ chối đúng theo thiết kế.
 
 Đây là bằng chứng thực nghiệm để chuyển sang Experiment 4: muốn dùng thông tin thật từ frame lân cận phải ước lượng chuyển động và warp donor về frame hiện tại. Experiment 3 dừng tại đây; chưa triển khai Optical Flow.
+
+---
+
+## Experiment 4 — Optical Flow Reconstruction trên CPU
+
+### Giả thuyết và pipeline
+
+Experiment 4 giữ nguyên toàn bộ kết quả của Experiment 2–3 và xử lý theo thứ tự:
+
+```text
+alpha-resolved → direct temporal → optical-flow donor → giữ unresolved
+```
+
+Với mỗi frame nguồn `t±1..3`, flow ánh xạ pixel unresolved ở frame đích sang một tọa độ tại frame nguồn. Donor chỉ hợp lệ nếu toàn bộ nội suy nguồn nằm ngoài unresolved watermark; nghĩa là donor nằm ngoài mask hoặc đã alpha/direct-resolved tại source. Pixel unresolved tuyệt đối không được copy.
+
+Do watermark cố định có thể làm dense flow trong nét chữ thiên về zero, vector trong mask được suy ra robust từ flow context lân cận. Mỗi donor tiếp tục phải vượt qua:
+
+* forward/backward cycle error không quá 1 pixel;
+* photometric và gradient context gate;
+* confidence theo khoảng cách thời gian;
+* đồng thuận hai phía nếu cùng có donor;
+* kiểm tra biên và nguồn sạch trước nội suy.
+
+Không dùng GPU/CUDA, inpaint cho output, blur hoặc patch.
+
+### So sánh estimator CPU
+
+Farneback và DIS medium preset của OpenCV đã được chạy trên cùng ROI 96×76 và cùng gate.
+
+* **Farneback:** có 31 candidate qua clean-source + consistency + context, nhưng không candidate nào đạt confidence ban đầu; khi dùng threshold nghiên cứu `0,25`, chỉ có 5 donor alpha-gap gần zero-motion và cứu **0 pixel unresolved tĩnh**.
+* **DIS:** có 57 candidate trước confidence; chấp nhận 5 donor pixel-frame thuộc 2 pixel unresolved tĩnh, displacement `1,14–1,58 px`. DIS được chọn cho video diagnostic vì đây là estimator duy nhất tạo được donor spatial thực sự dưới gate hiện tại.
+
+Đã thử thêm offset `t±6` (0,25 giây) với DIS. Không có donor mới; kết quả vẫn đúng 5 pixel-frame. Vì vậy pipeline cuối giữ cửa sổ `t±1..3` để giảm chi phí và rủi ro mismatch.
+
+### Coverage
+
+| Đại lượng | Kết quả |
+|---|---:|
+| Mask | 326 pixel |
+| Unresolved tĩnh từ Experiment 2 | 301 pixel |
+| Candidate DIS trước confidence | 57 pixel-frame |
+| Flow donor được chấp nhận | 5 pixel-frame |
+| Frame có donor | 4 / 192 |
+| Vị trí unresolved tĩnh được cứu ít nhất một lần | 2 / 301 = 0,66% |
+| Static unresolved pixel-frame được cứu | 5 / 57.792 = 0,0087% |
+| Donor nằm trong raw/core logo | **0** |
+| Pixel luôn unresolved sau flow | 299 / 326 |
+| Unresolved còn lại | 58.317 pixel-frame |
+
+Năm donor xuất hiện tại frame 53, 55 (2 pixel), 56 và 79. Bốn donor dùng `t−3`, một donor dùng `t−2`; không có donor phía sau hoặc donor hai phía đồng thuận. Confidence nằm trong `0,2597–0,4499`; forward/backward error trong `0,1161–0,5281 px`.
+
+Tất cả donor nằm ở phần dilation/anti-alias quanh mask, không nằm trong 186 pixel lõi chữ. Vì vậy con số 2 pixel unresolved tĩnh không đồng nghĩa đã phục hồi được nét chính của logo.
+
+Lý do từ chối:
+
+| Lý do | Pixel-frame |
+|---|---:|
+| Không có warped donor sạch | 41.142 |
+| Forward/backward không nhất quán | 7.137 |
+| Context không khớp | 9.986 |
+| Confidence/đồng thuận không đủ | 52 |
+
+### Chất lượng và temporal stability
+
+| Metric | Original | TELEA | Alpha | Direct temporal | Optical Flow |
+|---|---:|---:|---:|---:|---:|
+| Mean logo-likeness | 0,582052 | 0,233025 | 0,567375 | 0,567348 | 0,567348 |
+| Mean temporal MAD | 15,584685 | 10,884512 | 15,791845 | 15,791813 | 15,792391 |
+| Worst transition MAD | 48,858896 | 30,993865 | 48,800613 | 48,800613 | 48,800613 |
+
+Logo-likeness không cải thiện ở độ chính xác 6 chữ số. Optical Flow làm temporal MAD tăng nhẹ `0,000578` so với direct temporal. Kiểm tra frame 53–56 cho thấy các donor một phía xuất hiện ngắt quãng quanh cùng một pixel; không tạo ghosting/double-edge dạng mảng nhìn thấy được, nhưng có nguy cơ sparkle đơn pixel. Coverage cực nhỏ là lý do chính không thấy artifact lớn.
+
+Ở các frame DNA/đường sáng khó 128–131, DIS đo được chuyển động khoảng 6–8 pixel nhưng không donor nào vượt qua đồng thời clean-source, cycle và context gate. Nếu nới gate để nhận các warp này, nguy cơ lấy nhầm nhánh DNA, ghosting và double edge tăng cao. Experiment không nới gate chỉ để tăng coverage.
+
+### Performance, video và diagnostics
+
+* Optical Flow ROI: `34,71 s` cho 192 frame, khoảng `180,8 ms/frame` hoặc `5,53 FPS` xử lý ROI.
+* Toàn pipeline gồm alpha, direct temporal, diagnostics và encode: `45,19 s`.
+* Video `outputs/experiment4/ft-vid-23_optical_flow.mp4`: H.264, 1920×1080, 24 FPS, 192 frame, 8 giây.
+* Audio AAC được stream-copy; SHA-256 `85491270648754b1650ca7890bff2aefa8e94c1543303333bac1c3a887321464`, trùng input.
+* `diagnostics/experiment4/` có 8-frame contact sheet, comparison riêng donor và frame DNA 128–131, donor-source map, flow map, confidence, forward/backward error và unresolved mask.
+
+### Kết luận
+
+Optical Flow đã chứng minh có thể đưa donor thật từ tọa độ khác về frame hiện tại, nhưng **coverage chưa đủ dùng**: chỉ 2/301 vị trí unresolved, 5 pixel-frame và 0 pixel lõi logo. Nó không phục hồi DNA chạy dưới chữ Veo và không làm logo mờ đi đáng kể.
+
+Experiment 4 được giữ như một kết quả âm có định lượng. Không nên chuyển thẳng các donor confidence thấp vào output production. Trước Experiment 5 cần quyết định giữa hai hướng: cải thiện motion/occlusion model để tăng donor lõi có đồng thuận temporal, hoặc dùng hybrid fallback nhưng phải chấp nhận rằng inpaint đã được chứng minh làm hỏng DNA ở vùng chưa có thông tin thật.
